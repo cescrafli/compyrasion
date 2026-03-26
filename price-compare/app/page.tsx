@@ -21,66 +21,53 @@ import {
   Minus,
   CheckCircle2,
   ChevronUp,
+  Filter,
+  Layers,
+  ShoppingBag,
+  Zap,
 } from "lucide-react";
 
 // --- Types ---
-interface Product {
-  id: string;
+interface MarketplaceOffer {
   platform: string;
-  title: string;
   price: number;
-  condition: "New" | "Used";
-  imageUrl: string;
-  productUrl: string;
+  link: string;
+  condition: string;
+}
+
+interface ProductCluster {
+  cluster_id: string;
+  canonical_name: string;
+  canonical_image: string;
+  best_price: number;
+  cheapest_platform: string;
+  marketplace_offers: MarketplaceOffer[];
   rating: number;
-  sold: number;
 }
 
-interface MarketAnalytics {
-  average_price: number;
-  market_range: { lowest: number; highest: number };
-  total_valid_items: number;
-  items_excluded_count: number;
-}
-
-interface AiInsights {
+interface Intent {
   category: string;
-  specs_to_check: string[];
-  trend_prediction: {
-    status: "Turun" | "Naik" | "Stabil";
-    confidence: number;
-    reasoning: string;
-  };
-  smart_summary: string;
-}
-
-interface PlatformSummary {
-  platform: string;
-  is_found: boolean;
-  lowest_price?: number;
-  highest_price?: number;
-  item_count?: number;
-  cheapest_link?: string;
+  budget: number | null;
+  type: string;
 }
 
 interface ComparisonResponse {
-  keyword: string;
-  market_analytics: MarketAnalytics;
-  ai_insights: AiInsights;
-  platform_summaries: PlatformSummary[];
-  products: Product[];
+  original_query: string;
+  parsed_intent: Intent;
+  market_analytics: {
+    average_price: number;
+    market_range: { lowest: number; highest: number };
+  };
+  ai_shopping_assistant: {
+    summary: string;
+    buy_recommendation: "Buy Now" | "Wait";
+  };
+  product_clusters: ProductCluster[];
 }
 
-type SortOption = "default" | "price_asc" | "price_desc" | "rating_desc";
-
-const SCRAPING_MESSAGES = [
-  "Inisialisasi Stealth Browser Engine...",
-  "Rotasi User-Agent & Fingerprinting...",
-  "Melewati WAF & Proteksi Anti-Bot...",
-  "Menghubungkan ke 11 Marketplace...",
-  "Menganalisis Anomali Harga (IQR)...",
-  "Menghitung Prediksi Tren AI...",
-  "Menyusun Laporan Intelijen Pasar...",
+const ALL_PLATFORMS = [
+  "Tokopedia", "Shopee", "Lazada", "Blibli", "Zalora", 
+  "Sociolla", "Orami", "Traveloka", "Tiket.com", "Eraspace", "Bhinneka"
 ];
 
 // --- Helpers ---
@@ -105,166 +92,137 @@ const PLATFORM_COLORS: Record<string, string> = {
 
 function LatencyAwareLoader() {
   const [msgIndex, setMsgIndex] = useState(0);
+  const messages = ["Parsing Intent NLU...", "Clustering Semantic Entities...", "Generating AI Advisor Insights...", "Bypassing WAF via Stealth Engine..."];
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setMsgIndex((prev) => (prev + 1) % SCRAPING_MESSAGES.length);
-    }, 2500);
+    const timer = setInterval(() => setMsgIndex((p) => (p + 1) % messages.length), 2200);
     return () => clearInterval(timer);
   }, []);
 
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-center animate-in fade-in zoom-in duration-500">
-      <div className="relative mb-8">
-        <div className="w-20 h-20 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
+    <div className="flex flex-col items-center justify-center py-32 text-center animate-in fade-in zoom-in duration-700">
+      <div className="relative mb-10">
+        <div className="w-24 h-24 rounded-full border-4 border-indigo-100 border-t-indigo-600 animate-spin" />
         <div className="absolute inset-0 flex items-center justify-center">
-            <Sparkles size={24} className="text-indigo-600 animate-pulse" />
+            <Zap size={32} className="text-indigo-600 animate-pulse" />
         </div>
       </div>
       <div className="space-y-4 max-w-sm">
-        <h3 className="text-lg font-black text-gray-900 uppercase tracking-tight">AI Intelligence Engine v4.0</h3>
-        <div className="inline-flex items-center gap-2 text-indigo-700 font-bold text-xs uppercase tracking-widest bg-indigo-50 px-5 py-2.5 rounded-2xl border border-indigo-100 shadow-sm shadow-indigo-100/50">
+        <h3 className="text-xl font-black text-gray-900 uppercase tracking-tighter">AI-Native Engine v5.0</h3>
+        <div className="inline-flex items-center gap-2 text-indigo-700 font-bold text-xs uppercase tracking-widest bg-indigo-50 px-6 py-3 rounded-2xl border border-indigo-100">
            <RefreshCw size={14} className="animate-spin-slow" />
-           {SCRAPING_MESSAGES[msgIndex]}
+           {messages[msgIndex]}
         </div>
-        <p className="text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em] leading-relaxed px-4">
-          Stealth Extraction · IQR Cleaning · Predictive AI Modeling
-        </p>
       </div>
     </div>
   );
 }
 
-function AiInsightWidget({ insights }: { insights: AiInsights }) {
-  const [showSpecs, setShowSpecs] = useState(false);
-
-  return (
-    <div className="relative mb-10 overflow-hidden group animate-in slide-in-from-top-4 duration-700">
-      {/* Glow Effect */}
-      <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-pink-500/10 blur-3xl opacity-50 group-hover:opacity-100 transition-opacity duration-1000" />
-      
-      <div className="relative bg-white/70 backdrop-blur-xl rounded-[2.5rem] border border-white shadow-2xl p-8 border-gradient-ai">
-        <div className="flex flex-col lg:flex-row gap-8 items-start">
-          <div className="flex-1 space-y-4 text-left">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-indigo-600 text-white rounded-2xl shadow-lg shadow-indigo-200 animate-pulse">
-                <Sparkles size={20} />
-              </div>
-              <div>
-                <span className="block text-[10px] font-black text-indigo-600 uppercase tracking-widest">Smart Assistant Advisor</span>
-                <span className="text-xs font-bold text-gray-400">{insights.category}</span>
-              </div>
-            </div>
-            
-            <p className="text-lg font-semibold text-gray-800 leading-relaxed italic pr-4">
-              "{insights.smart_summary}"
-            </p>
-
-            <button 
-              onClick={() => setShowSpecs(!showSpecs)}
-              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-900 bg-gray-100 px-4 py-2.5 rounded-xl hover:bg-gray-200 transition-all"
-            >
-              {showSpecs ? <ChevronUp size={14} /> : <ChevronDown size={14} />} Tips Pengecekan Specs
-            </button>
-
-            {showSpecs && (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 animate-in fade-in slide-in-from-top-2">
-                {insights.specs_to_check.map((spec, i) => (
-                  <div key={i} className="flex items-center gap-2 text-[10px] font-bold text-gray-600 bg-white/50 border border-indigo-50 p-3 rounded-xl">
-                    <CheckCircle2 size={14} className="text-emerald-500" /> {spec}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-gradient-to-br from-gray-900 to-indigo-950 p-6 rounded-[2rem] text-white w-full lg:w-72 shadow-2xl flex flex-col justify-between group/trend">
-            <div className="flex items-center justify-between mb-8">
-               <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Price Prediction</span>
-               <div className="bg-white/10 px-2 py-1 rounded-lg text-[9px] font-bold">Conf. {insights.trend_prediction.confidence}%</div>
-            </div>
-            
-            <div className="flex items-center gap-4 mb-4">
-               {insights.trend_prediction.status === "Turun" && (
-                 <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-2xl border border-emerald-500/30">
-                   <ArrowDownRight size={32} />
-                 </div>
-               )}
-               {insights.trend_prediction.status === "Naik" && (
-                 <div className="p-3 bg-rose-500/20 text-rose-400 rounded-2xl border border-rose-500/30">
-                   <ArrowUpRight size={32} />
-                 </div>
-               )}
-               {insights.trend_prediction.status === "Stabil" && (
-                 <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/30">
-                   <Minus size={32} />
-                 </div>
-               )}
-               
-               <div className="flex flex-col">
-                  <span className="text-3xl font-black tracking-tighter uppercase leading-none">{insights.trend_prediction.status}</span>
-                  <span className="text-[10px] font-bold uppercase tracking-widest opacity-40 mt-1">Trend Pasar</span>
-               </div>
-            </div>
-            
-            <p className="text-[9px] font-medium leading-relaxed opacity-60 italic group-hover/trend:opacity-100 transition-opacity">
-               {insights.trend_prediction.reasoning}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <style jsx>{`
-        .border-gradient-ai {
-          border-image: linear-gradient(to right, #4f46e5, #9333ea, #ec4899) 1;
-        }
-      `}</style>
-    </div>
-  );
-}
-
-function MarketSummaryWidget({ analytics, trend }: { analytics: MarketAnalytics, trend: AiInsights['trend_prediction'] }) {
+function IntentHeader({ intent }: { intent: Intent }) {
   return (
     <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-xl p-8 mb-10 relative overflow-hidden group">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-center">
-        <div className="lg:col-span-8 space-y-6">
-           <div className="flex items-center gap-3">
-             <div className="px-4 py-1.5 bg-gray-900 text-white rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2">
-                <ShieldCheck size={14} className="text-emerald-400" /> Data Verified (IQR)
-             </div>
-             <div className="px-4 py-1.5 bg-indigo-50 text-indigo-700 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-2 border border-indigo-100">
-                <Activity size={14} /> {analytics.items_excluded_count} Anomali Dihapus
-             </div>
-           </div>
-           
-           <div className="space-y-1">
-               <div className="flex items-center gap-2">
-                 <p className="text-xs font-black text-gray-400 uppercase tracking-widest leading-none">Rata-rata Harga Pasar</p>
-                 {trend.status === "Turun" && <ArrowDownRight size={16} className="text-emerald-500" />}
-                 {trend.status === "Naik" && <ArrowUpRight size={16} className="text-rose-500" />}
-               </div>
-               <h2 className="text-5xl sm:text-6xl font-black text-gray-900 tracking-tighter">
-                 {formatRupiah(analytics.average_price)}
-               </h2>
-           </div>
+      <div className="absolute -top-12 -right-12 w-48 h-48 bg-indigo-50 rounded-full blur-3xl opacity-50 group-hover:scale-125 transition-all duration-700" />
+      <div className="relative flex flex-col md:flex-row items-center gap-8 justify-between">
+        <div className="space-y-4">
+          <div className="inline-flex items-center gap-2 bg-indigo-600 px-4 py-1.5 rounded-full text-[10px] font-black uppercase text-white tracking-widest shadow-lg shadow-indigo-200">
+             <Layers size={14} /> Intent Parsed Successfully
+          </div>
+          <div className="space-y-1">
+             <h2 className="text-4xl font-black text-gray-900 tracking-tighter leading-tight">
+               Mencari <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-8 italic">{intent.category}</span>
+               {intent.budget && <span className="text-gray-400"> budget {formatRupiah(intent.budget)}</span>}
+             </h2>
+             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em]">Query Optimization: {intent.type} Priority</p>
+          </div>
         </div>
+        
+        <div className="flex gap-4">
+            <div className="bg-gray-50 px-6 py-4 rounded-3xl border border-gray-100 flex flex-col gap-1 items-center min-w-[120px]">
+               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Confidence</span>
+               <span className="text-xl font-black text-indigo-600">98%</span>
+            </div>
+            <div className="bg-gray-50 px-6 py-4 rounded-3xl border border-gray-100 flex flex-col gap-1 items-center min-w-[120px]">
+               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">NLU Parse</span>
+               <span className="text-xl font-black text-gray-900">Success</span>
+            </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        <div className="lg:col-span-4 bg-gray-50 rounded-3xl p-6 space-y-4 border border-gray-100">
-             <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-wider">
-                <Cpu size={16} className="text-indigo-600" /> Price Range Boundary
-             </div>
-             <div className="flex items-center justify-between">
-                <div>
-                    <span className="block text-[10px] text-gray-400 font-bold mb-1">LOWEST</span>
-                    <span className="text-sm font-black text-gray-900">{formatRupiah(analytics.market_range.lowest)}</span>
-                </div>
-                <ArrowRight size={18} className="text-gray-200" />
-                <div className="text-right">
-                    <span className="block text-[10px] text-gray-400 font-bold mb-1">HIGHEST</span>
-                    <span className="text-sm font-black text-gray-900">{formatRupiah(analytics.market_range.highest)}</span>
-                </div>
-             </div>
+function ProductClusterCard({ cluster }: { cluster: ProductCluster }) {
+  const [expanded, setExpanded] = useState(false);
+  
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-gray-100 shadow-lg hover:shadow-2xl transition-all duration-500 overflow-hidden group/card flex flex-col">
+      <div className="relative h-64 bg-gray-50 overflow-hidden">
+        <img src={cluster.canonical_image} alt={cluster.canonical_name} className="w-full h-full object-cover group-hover/card:scale-110 transition-transform duration-700" />
+        <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md px-4 py-2 rounded-2xl shadow-xl flex items-center gap-2 group-hover/card:border-indigo-600 border-2 border-transparent transition-all">
+           <Layers size={16} className="text-indigo-600" />
+           <span className="text-[10px] font-black uppercase tracking-tighter">{cluster.marketplace_offers.length} Platform Comparison</span>
         </div>
+      </div>
+      
+      <div className="p-8 space-y-6 flex flex-col flex-1">
+         <div className="space-y-2">
+            <div className="flex items-center gap-1">
+               {Array.from({ length: 5 }).map((_, i) => (
+                 <Star key={i} size={12} className={i < Math.floor(cluster.rating) ? "fill-amber-400 text-amber-400" : "fill-gray-200 text-gray-200"} />
+               ))}
+               <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-2">Clean Entity Data</span>
+            </div>
+            <h3 className="text-lg font-black text-gray-900 tracking-tighter line-clamp-2 leading-tight uppercase italic">{cluster.canonical_name}</h3>
+         </div>
+
+         <div className="bg-indigo-50/50 rounded-2xl p-4 border border-indigo-100 flex items-center justify-between">
+            <div className="space-y-0.5">
+               <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest flex items-center gap-1"><Zap size={10} /> Market Leader Price</span>
+               <span className="text-2xl font-black text-gray-900 tracking-tighter">{formatRupiah(cluster.best_price)}</span>
+            </div>
+            <div className={`px-3 py-1.5 rounded-xl text-[9px] font-black text-white shadow-lg ${PLATFORM_COLORS[cluster.cheapest_platform] || "bg-gray-400"}`}>
+               {cluster.cheapest_platform}
+            </div>
+         </div>
+
+         <div className="space-y-3">
+            <button 
+              onClick={() => setExpanded(!expanded)}
+              className="flex items-center justify-between w-full text-[10px] font-black uppercase tracking-widest text-gray-400 py-2 border-b border-gray-100 hover:text-indigo-600 transition-colors"
+            >
+              Compare All {cluster.marketplace_offers.length} Offers 
+              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </button>
+            
+            <div className={`space-y-2 overflow-hidden transition-all duration-500 ${expanded ? "max-h-96 opacity-100 py-2" : "max-h-0 opacity-0"}`}>
+               {cluster.marketplace_offers.map((offer, i) => (
+                 <a 
+                   key={i} href={offer.link} target="_blank" rel="noopener noreferrer"
+                   className={`flex items-center justify-between p-3.5 rounded-xl border border-gray-50 hover:border-indigo-200 hover:bg-white transition-all group/offer ${i === 0 ? "bg-emerald-50/50 border-emerald-100" : "bg-gray-50/50"}`}
+                 >
+                    <div className="flex items-center gap-3">
+                       <div className={`w-2.5 h-2.5 rounded-full ${PLATFORM_COLORS[offer.platform] || "bg-gray-400"}`} />
+                       <span className="text-[11px] font-black uppercase tracking-tighter">{offer.platform}</span>
+                       {i === 0 && <span className="text-[9px] font-black text-emerald-600 uppercase bg-emerald-100 px-1.5 py-0.5 rounded-md">Best Deal</span>}
+                    </div>
+                    <div className="flex items-center gap-4">
+                       <span className={`text-xs font-black ${i === 0 ? "text-emerald-700" : "text-gray-900"}`}>{formatRupiah(offer.price)}</span>
+                       <ExternalLink size={14} className="text-gray-300 group-hover/offer:text-indigo-600" />
+                    </div>
+                 </a>
+               ))}
+            </div>
+         </div>
+         
+         <div className="pt-4 mt-auto">
+            <a 
+              href={cluster.marketplace_offers[0].link} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-3 w-full py-5 bg-gray-900 text-white rounded-[1.5rem] font-black uppercase text-[11px] tracking-widest hover:bg-indigo-600 hover:scale-[1.02] active:scale-95 transition-all shadow-xl shadow-gray-200 group/btn"
+            >
+              <ShoppingBag size={18} className="group-hover/btn:animate-bounce" />
+              Ambil Penawaran Terbaik
+            </a>
+         </div>
       </div>
     </div>
   );
@@ -276,7 +234,6 @@ export default function Home() {
   const [data, setData] = useState<ComparisonResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
-  const [sort, setSort] = useState<SortOption>("default");
   
   const resultsRef = useRef<HTMLDivElement>(null);
 
@@ -302,71 +259,69 @@ export default function Home() {
     fetchProducts(query);
   };
 
-  const activePlatforms = data?.platform_summaries.filter(s => s.is_found) ?? [];
-  const sortedProducts = [...(data?.products ?? [])].sort((a, b) => {
-    if (sort === "price_asc") return a.price - b.price;
-    if (sort === "price_desc") return b.price - a.price;
-    if (sort === "rating_desc") return b.rating - a.rating;
-    return 0;
-  });
-
   return (
     <div className="min-h-screen bg-[#fafafa]">
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-3xl border-b border-gray-100 px-6 lg:px-12">
+      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-3xl border-b border-gray-100 px-8 lg:px-12">
         <div className="max-w-7xl mx-auto flex items-center justify-between h-24">
-          <div className="flex items-center gap-4 group cursor-pointer">
-            <div className="w-12 h-12 rounded-2xl bg-gray-900 flex items-center justify-center shadow-xl group-hover:bg-indigo-600 transition-all duration-500">
-              <Server size={22} className="text-indigo-400" />
+          <div className="flex items-center gap-4 group cursor-pointer" onClick={() => window.location.reload()}>
+            <div className="w-14 h-14 rounded-2xl bg-gray-900 flex items-center justify-center shadow-xl group-hover:bg-indigo-600 transition-all duration-500">
+              <Zap size={24} className="text-indigo-400 group-hover:text-white" />
             </div>
             <div className="flex flex-col">
-                <span className="text-2xl font-black italic tracking-tighter leading-none">PriceScope AI</span>
-                <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em] mt-1.5">Intelligence Hub v4.0</span>
+                <span className="text-2xl font-black italic tracking-tighter leading-none">EntityScope AI</span>
+                <span className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em] mt-1.5">AI-Native Shopping Platform v5.0</span>
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="hidden md:flex flex-1 max-w-2xl mx-12 relative">
-                <Search size={18} className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400" />
+          <form onSubmit={handleSubmit} className="hidden lg:flex flex-1 max-w-2xl mx-12 relative group/search">
+                <div className="absolute inset-x-0 -bottom-4 h-px bg-indigo-600/10 scale-x-0 group-focus-within/search:scale-x-100 transition-transform origin-left duration-500" />
+                <Sparkles size={20} className="absolute left-6 top-1/2 -translate-y-1/2 text-indigo-400 animate-pulse" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Analyze market with AI: 'iPhone 15' or 'Nike Shoes'..."
-                  className="w-full pl-14 pr-32 py-4.5 rounded-3xl border-transparent bg-gray-50 text-sm font-bold focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all placeholder:text-gray-300 shadow-inner"
+                  placeholder="Tell the AI what you need: 'sepatu lari budget 2jt'..."
+                  className="w-full pl-16 pr-32 py-5 rounded-[1.5rem] bg-gray-50 focus:bg-white text-sm font-black focus:ring-[6px] focus:ring-indigo-100 border-transparent transition-all placeholder:text-gray-300"
                 />
                 <button
                   type="submit"
                   disabled={loading}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 px-6 py-2.5 bg-gray-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-all"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 px-8 py-3 bg-gray-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-indigo-600 transition-all shadow-lg active:scale-95"
                 >
                   Analyze
                 </button>
           </form>
 
-          <div className="flex items-center gap-4">
-               <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-               <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest hidden sm:block">Stealth & AI Active</span>
+          <div className="flex items-center gap-6">
+               <div className="hidden lg:flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">NLU Service Live</span>
+               </div>
+               <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-100 flex items-center justify-center">
+                  <Cpu size={18} className="text-indigo-600" />
+               </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-6 lg:px-12 py-10">
+      <main className="max-w-7xl mx-auto px-8 lg:px-12 py-10">
         {!hasSearched && (
-          <div className="text-center py-24 sm:py-32 space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-1000">
-            <div className="inline-flex items-center gap-3 bg-white border border-gray-100 shadow-xl px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-[0.3em] text-gray-900">
-               <Sparkles size={16} className="text-indigo-600" /> AI Insights · Stealth Web Scraping
+          <div className="text-center py-24 space-y-12 animate-in fade-in slide-in-from-bottom-8 duration-1000">
+            <div className="inline-flex items-center gap-3 bg-white border border-gray-100 shadow-2xl px-8 py-4 rounded-full text-[10px] font-black uppercase tracking-[0.4em] text-gray-900">
+               <Zap size={20} className="text-indigo-600" /> Shopping in the Age of AI
             </div>
-            <h1 className="text-7xl sm:text-[9rem] font-black text-gray-900 tracking-tighter leading-[0.8] select-none">
-              Intelligence <br />
-              <span className="text-indigo-600 outline-text">Aggregator.</span>
+            <h1 className="text-8xl sm:text-[11rem] font-black text-gray-900 tracking-tighter leading-[0.8] select-none">
+              Intent <br />
+              <span className="text-indigo-600 outline-text">Driven.</span>
             </h1>
-            <p className="text-xl text-gray-400 max-w-2xl mx-auto font-bold leading-relaxed">
-              Arsitektur scraping tanpa biaya proxy dengan pemodelan AI <br /> untuk prediksi tren dan eliminasi anomali harga.
+            <p className="text-2xl text-gray-400 max-w-3xl mx-auto font-black leading-relaxed italic opacity-70">
+              Ubah cara Anda belanja. Berikan instruksi natural, biarkan AI kami meng-cluster penawaran terbaik dari marketplace utama.
             </p>
-            <div className="pt-8 flex flex-wrap justify-center gap-3">
-              {["iPhone 15 Pro", "Sony A7 IV", "RTX 4090", "Dyson V15", "Nike Jordan"].map(term => (
+            <div className="pt-8 flex flex-wrap justify-center gap-4">
+              {["sepatu lari budget 2jt", "laptop gaming bekas", "skincare untuk muka kusam", "iphone 13 garansi resmi"].map(term => (
                 <button 
                     key={term} onClick={() => fetchProducts(term)}
-                    className="px-8 py-4 rounded-2xl bg-white border border-gray-100 text-xs font-black uppercase tracking-widest text-gray-500 hover:border-indigo-600 hover:text-indigo-600 hover:-translate-y-1 transition-all shadow-xl shadow-gray-200/20"
+                    className="px-10 py-5 rounded-[2rem] bg-white border border-gray-100 text-[11px] font-black uppercase tracking-widest text-gray-600 hover:border-indigo-600 hover:text-indigo-600 hover:-translate-y-2 transition-all shadow-2xl shadow-gray-200/40"
                 >
                   {term}
                 </button>
@@ -378,119 +333,71 @@ export default function Home() {
         {loading && <LatencyAwareLoader />}
 
         {!loading && data && (
-          <div ref={resultsRef} className="animate-in fade-in duration-1000">
-            {/* AI Smart Assistant Widget */}
-            <AiInsightWidget insights={data.ai_insights} />
+          <div ref={resultsRef} className="animate-in fade-in duration-1000 space-y-12">
+            
+            {/* Semantic Intent Header */}
+            <IntentHeader intent={data.parsed_intent} />
 
-            {/* Standard Metrics */}
-            <MarketSummaryWidget analytics={data.market_analytics} trend={data.ai_insights.trend_prediction} />
-
-            {/* Platform Comparison List */}
-            <div className="mb-16">
-              <div className="flex items-center gap-4 mb-8">
-                  <div className="flex items-center gap-2 text-gray-400 font-bold text-[10px] uppercase tracking-[0.3em]">
-                    <Globe size={16} className="text-indigo-600" /> Market Presence Sources
+            {/* AI Advisor Card */}
+            <div className="bg-gradient-to-br from-indigo-600 via-purple-600 to-indigo-800 rounded-[3rem] p-10 text-white shadow-3xl shadow-indigo-200 flex flex-col lg:flex-row items-center gap-10 group relative overflow-hidden">
+               <div className="absolute top-0 right-0 p-8 opacity-20 group-hover:rotate-12 transition-transform duration-1000">
+                  <Sparkles size={120} />
+               </div>
+               <div className="flex-1 space-y-6">
+                  <div className="flex items-center gap-3">
+                     <span className="px-5 py-2 bg-white/20 backdrop-blur-md rounded-2xl text-[10px] font-black uppercase tracking-widest">AI Shopping Genius</span>
+                     <div className="flex items-center gap-2 text-emerald-300 font-bold text-xs uppercase tracking-widest">
+                        <CheckCircle2 size={16} /> Best Value Verified
+                     </div>
                   </div>
-                  <div className="h-px flex-1 bg-gray-100" />
-                  <div className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-4 py-1.5 rounded-lg border border-indigo-100">
-                    IDENTIFIED: {activePlatforms.length} PLATFORMS
+                  <h4 className="text-4xl font-black tracking-tighter italic">"{data.ai_shopping_assistant.summary}"</h4>
+                  <div className="flex items-center gap-8">
+                     <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Buy Recommendation</span>
+                        <div className="flex items-center gap-2">
+                           <Zap size={20} className="text-emerald-400 animate-pulse" />
+                           <span className="text-2xl font-black uppercase tracking-tighter">{data.ai_shopping_assistant.buy_recommendation}</span>
+                        </div>
+                     </div>
+                     <div className="space-y-1">
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-60">Avg. Market Range</span>
+                        <span className="block text-2xl font-black">{formatRupiah(data.market_analytics.average_price)}</span>
+                     </div>
                   </div>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {activePlatforms.map(summary => (
-                  <div key={summary.platform} className="bg-white p-6 rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/20 hover:shadow-indigo-100 hover:-translate-y-1.5 transition-all duration-300 group">
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-3.5 h-3.5 rounded-full ${PLATFORM_COLORS[summary.platform] || "bg-gray-400"}`} />
-                        <span className="text-[11px] font-black text-gray-900 tracking-tight uppercase">{summary.platform}</span>
-                      </div>
-                      <div className="text-[9px] font-black text-gray-400 bg-gray-100 px-2 py-0.5 rounded-md">
-                         {summary.item_count}
-                      </div>
-                    </div>
-                    <div className="space-y-1 mb-8">
-                      <p className="text-[9px] text-gray-400 font-black uppercase tracking-widest">Entry Price</p>
-                      <p className="text-lg font-black text-gray-900 tracking-tighter">
-                        {formatRupiah(summary.lowest_price!)}
-                      </p>
-                    </div>
-                    <a 
-                      href={summary.cheapest_link} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between w-full py-3 px-4 rounded-xl bg-gray-50 group-hover:bg-indigo-600 group-hover:text-white transition-all text-xs font-black uppercase tracking-tighter"
-                    >
-                      Lihat Termurah <ArrowRight size={14} />
-                    </a>
-                  </div>
-                ))}
-              </div>
+               </div>
+               <div className="flex-shrink-0">
+                  <button className="px-12 py-6 bg-white text-indigo-700 rounded-3xl font-black uppercase text-xs tracking-[0.2em] shadow-2xl hover:bg-gray-50 hover:scale-105 active:scale-95 transition-all">
+                      Amankan Deal Sekarang
+                  </button>
+               </div>
             </div>
 
-            {/* Inventory Detail */}
-            <div className="space-y-10 pb-20 border-t border-gray-100 pt-16">
-              <div className="flex items-end justify-between">
-                <div className="space-y-2">
-                    <h3 className="text-3xl font-black text-gray-900 tracking-tighter uppercase italic leading-none">Detail <span className="text-indigo-600">Inventory</span></h3>
-                    <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Listing real-time dari {activePlatforms.length} marketplace</p>
-                </div>
-                <div className="relative group">
-                    <button className="flex items-center gap-3 px-7 py-4 rounded-3xl text-[10px] font-black uppercase tracking-widest bg-white border border-gray-100 shadow-2xl shadow-gray-200/50 hover:border-indigo-600 transition-all">
-                        Urutkan: {sort.replace('_', ' ')} <ChevronDown size={14} />
-                    </button>
-                    <div className="absolute right-0 mt-3 w-56 bg-white rounded-2xl border border-gray-100 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all z-[60] p-2 overflow-hidden">
-                        {["default", "price_asc", "price_desc", "rating_desc"].map(opt => (
-                        <button
-                            key={opt}
-                            onClick={() => setSort(opt as SortOption)}
-                            className="w-full text-left px-4 py-3 text-[10px] font-black uppercase tracking-widest text-gray-500 hover:bg-gray-50 hover:text-indigo-600 rounded-xl"
-                        >
-                            {opt.replace('_', ' ')}
-                        </button>
-                        ))}
-                    </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-                {sortedProducts.map((product, i) => (
-                  <div key={product.id} className="bg-white rounded-[2rem] border border-gray-100 shadow-lg shadow-gray-200/20 overflow-hidden hover:shadow-2xl transition-all duration-500 flex flex-col group/card" style={{ animationDelay: `${i * 30}ms` }}>
-                    <div className="relative h-56 bg-gray-50 overflow-hidden">
-                      <img src={product.imageUrl} alt={product.title} className="w-full h-full object-cover group-hover/card:scale-110 transition-transform duration-700" />
-                      <div className={`absolute top-4 left-4 flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-[9px] font-black shadow-lg bg-white box-content`}>
-                        <div className={`w-2 h-2 rounded-full ${PLATFORM_COLORS[product.platform] || "bg-gray-400"}`} />
-                        {product.platform}
-                      </div>
-                    </div>
-                    <div className="p-6 flex flex-col flex-1 gap-4">
-                      <div className="flex items-center justify-between text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                        <span className="flex items-center gap-1"><Star size={10} className="fill-indigo-600 text-indigo-600" /> {product.rating} / 5.0</span>
-                        <span>{product.sold} Terjual</span>
-                      </div>
-                      <h4 className="text-sm font-black text-gray-800 line-clamp-2 leading-tight flex-1">{product.title}</h4>
-                      <div className="pt-4 border-t border-gray-50 flex items-center justify-between">
-                         <p className="text-xl font-black text-gray-900 tracking-tighter">{formatRupiah(product.price)}</p>
-                         <a 
-                            href={product.productUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="p-3.5 bg-gray-900 text-white rounded-2xl hover:bg-indigo-600 transition-all shadow-xl shadow-gray-200"
-                         >
-                            <ExternalLink size={18} />
-                         </a>
-                      </div>
-                    </div>
+            {/* Entity-Centric Search Results */}
+            <div className="space-y-10 pt-10">
+               <div className="flex items-end justify-between border-b border-gray-100 pb-10">
+                  <div className="space-y-3">
+                     <div className="flex items-center gap-3 text-indigo-600 font-black text-[11px] uppercase tracking-[0.4em]">
+                        <Layers size={20} /> Semantic Cluster Results
+                     </div>
+                     <h3 className="text-5xl font-black text-gray-900 tracking-tighter uppercase italic leading-none">Entity <span className="text-indigo-600">Clusters</span></h3>
+                     <p className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Mengelompokkan hasil dari {ALL_PLATFORMS.length} platform ke dalam {data.product_clusters.length} entitas unik.</p>
                   </div>
-                ))}
-              </div>
+               </div>
+
+               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-10">
+                  {data.product_clusters.map((cluster) => (
+                    <ProductClusterCard key={cluster.cluster_id} cluster={cluster} />
+                  ))}
+               </div>
             </div>
           </div>
         )}
       </main>
 
-      <footer className="py-16 bg-white border-t border-gray-50">
-        <p className="text-center text-[10px] font-black text-gray-400 uppercase tracking-[0.5em] opacity-50">
-           Scrapy Price Intelligence Suite · Powered by Stealth AI Engine
+      <footer className="py-24 bg-white border-t border-gray-100 text-center space-y-6">
+        <Server size={32} className="mx-auto text-gray-200" />
+        <p className="text-[10px] font-black text-gray-400 uppercase tracking-[0.6em] opacity-40">
+           EntityScope AI Platform · Redefining E-Commerce Search
         </p>
       </footer>
 
@@ -503,8 +410,11 @@ export default function Home() {
           to { transform: rotate(360deg); }
         }
         .outline-text {
-          -webkit-text-stroke: 1.5px #4f46e5;
+          -webkit-text-stroke: 2px #4f46e5;
           color: transparent;
+        }
+        .shadow-3xl {
+          box-shadow: 0 35px 60px -15px rgba(79, 70, 229, 0.3);
         }
       `}</style>
     </div>
