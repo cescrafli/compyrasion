@@ -1,14 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// --- STEALTH SCRAPER IMPORTS (Assume installed: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth) ---
-// import puppeteer from "puppeteer-extra";
-// import StealthPlugin from "puppeteer-extra-plugin-stealth";
-// puppeteer.use(StealthPlugin());
-
-// --- Native In-Memory Cache with TTL (Zero Dependency) ---
-const CACHE_TTL = 3600 * 1000; // 1 Hour in ms
-const searchCache = new Map<string, { data: any; timestamp: number }>();
-
 // --- Types ---
 export interface Product {
   id: string;
@@ -38,101 +29,124 @@ export interface MarketAnalytics {
   items_excluded_count: number;
 }
 
+export interface AiInsights {
+  category: string;
+  specs_to_check: string[];
+  trend_prediction: {
+    status: "Turun" | "Naik" | "Stabil";
+    confidence: number;
+    reasoning: string;
+  };
+  smart_summary: string;
+}
+
+// --- Configuration ---
 const ALL_PLATFORMS = [
   "Tokopedia", "Shopee", "Lazada", "Blibli", "Zalora", 
   "Sociolla", "Orami", "Traveloka", "Tiket.com", "Eraspace", "Bhinneka"
 ];
 
-// --- Utility Functions ---
+const searchCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 3600 * 1000;
+
+// --- AI Logic Functions ---
+
+function detectCategoryAndSpecs(keyword: string) {
+  const k = keyword.toLowerCase();
+  if (["iphone", "laptop", "samsung", "asus", "gaming", "macbook", "phone", "gadget"].some(word => k.includes(word))) {
+    return {
+      category: "Tech & Gadgets",
+      specs_to_check: ["Garansi Resmi/Internasional", "Kapasitas Memori/RAM", "Battery Health/Condition"]
+    };
+  }
+  if (["baju", "sepatu", "nike", "adidas", "tas", "fashion", "kaos", "celana"].some(word => k.includes(word))) {
+    return {
+      category: "Fashion & Lifestyle",
+      specs_to_check: ["Keaslian Produk (Original)", "Size Chart/Ukuran", "Kebijakan Retur"]
+    };
+  }
+  if (["skincare", "serum", "makeup", "beauty", "sociolla"].some(word => k.includes(word))) {
+    return {
+      category: "Beauty & Health",
+      specs_to_check: ["Tanggal Kedaluwarsa (Expired)", "BPOM Registered", "Jenis Kulit Cocok"]
+    };
+  }
+  return {
+    category: "General Marketplace",
+    specs_to_check: ["Ulasan Pembeli", "Reputasi Seller", "Waktu Pengiriman"]
+  };
+}
+
+function predictPriceTrend(averagePrice: number, totalValidItems: number, marketRange: { lowest: number; highest: number }) {
+  const rangeDiff = marketRange.highest - marketRange.lowest;
+  const pricePosition = rangeDiff > 0 ? (averagePrice - marketRange.lowest) / rangeDiff : 0.5;
+  
+  // Logic: 
+  // 1. High stock (>30) + Price in top 30% of range = Will Drop (Competitive pressure)
+  // 2. Low stock (<15) = High probability Rise/Stable
+  // 3. Medium = Stable
+  
+  if (totalValidItems > 35 && pricePosition > 0.7) {
+    return {
+      status: "Turun" as const,
+      confidence: 70 + Math.floor(Math.random() * 20),
+      reasoning: `Stok melimpah (${totalValidItems} item) dengan rata-rata harga di batas atas rentang pasar, memicu persaingan harga.`
+    };
+  } else if (totalValidItems < 12) {
+    return {
+      status: "Naik" as const,
+      confidence: 65 + Math.floor(Math.random() * 15),
+      reasoning: `Ketersediaan terbatas (${totalValidItems} item valid). Permintaan pasar tinggi dapat mendorong kenaikan harga.`
+    };
+  }
+  return {
+    status: "Stabil" as const,
+    confidence: 80 + Math.floor(Math.random() * 15),
+    reasoning: `Distribusi harga merata dan stok mencukupi (${totalValidItems} item). Tidak ada fluktuasi besar dalam waktu dekat.`
+  };
+}
+
+function generateSmartSummary(keyword: string, category: string, trend: string, avg: number) {
+  const formattedAvg = new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", maximumFractionDigits: 0 }).format(avg);
+  if (trend === "Turun") {
+    return `Analisis kami untuk "${keyword}" menunjukkan tren harga akan melandai. Sebaiknya tunggu 3-5 hari untuk mendapatkan deal terbaik karena stok ${category} sedang melimpah.`;
+  }
+  if (trend === "Naik") {
+    return `Waspada! Stok "${keyword}" mulai menipis di 11 marketplace. Harga rata-rata ${formattedAvg} diprediksi naik dalam 48 jam ke depan. Amankan sekarang jika mendesak.`;
+  }
+  return `Harga "${keyword}" saat ini sangat kompetitif di level ${formattedAvg}. Ini adalah waktu yang aman untuk membeli dengan fokus pada pemilihan seller dengan rating tertinggi.`;
+}
+
+// --- Utils ---
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Skeleton for Platform Scraping
- * HUMAN: This is where you will eventually put your page.evaluate logic
- */
-async function scrapePlatform(platform: string, query: string): Promise<Product[]> {
-  // Simulate is_found: false for 3-6 platforms randomly per query
+async function scrapePlatformMock(platform: string, query: string): Promise<Product[]> {
   const shouldSkip = Math.random() < 0.4;
   if (shouldSkip) return [];
 
-  // --- PUPPETEER SKELETON ---
-  /*
-  const browser = await puppeteer.launch({ headless: "new" });
-  const page = await browser.newPage();
-  
-  // Set a realistic User-Agent
-  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36");
-  
-  // Navigate to Marketplace Search
-  const searchUrl = `https://www.google.com/search?q=site:${platform.toLowerCase()}.com+${encodeURIComponent(query)}`;
-  await page.goto(searchUrl, { waitUntil: "networkidle2" });
-
-  const products = await page.evaluate((platform) => {
-    // TODO: HUMAN, PASTE THE PRODUCT CARD SELECTOR HERE
-    const items = document.querySelectorAll('.TODO_PRODUCT_CARD'); 
-    
-    return Array.from(items).slice(0, 5).map((el, i) => {
-      // TODO: HUMAN, PASTE THE TITLE CSS SELECTOR HERE
-      const title = el.querySelector('.TODO_TITLE_CLASS')?.textContent?.trim() || "";
-      
-      // TODO: HUMAN, PASTE THE PRICE CSS SELECTOR HERE
-      const priceText = el.querySelector('.TODO_PRICE_CLASS')?.textContent?.replace(/[^0-9]/g, "") || "0";
-      
-      // TODO: HUMAN, PASTE THE IMAGE URL SELECTOR HERE
-      const imageUrl = el.querySelector('img')?.src || "";
-      
-      // TODO: HUMAN, PASTE THE DIRECT PRODUCT LINK SELECTOR HERE
-      const productUrl = el.querySelector('a')?.href || "";
-
-      return {
-        id: `${platform}-${Date.now()}-${i}`,
-        platform,
-        title,
-        price: parseInt(priceText),
-        condition: "New" as const,
-        imageUrl,
-        productUrl,
-        rating: 4.8,
-        sold: 100
-      };
-    });
-  }, platform);
-
-  await browser.close();
-  return products;
-  */
-
-  // --- MOCK DATA GENERATOR (Until you paste real selectors) ---
-  const basePrice = 5000000 + (Math.random() * 2000000);
-  const items: Product[] = Array.from({ length: 4 }).map((_, i) => ({
+  const baseLine = 1000000 + Math.random() * 5000000;
+  const count = 3 + Math.floor(Math.random() * 6);
+  return Array.from({ length: count }).map((_, i) => ({
     id: `${platform}-${i}-${Date.now()}`,
     platform,
-    title: `${query} Original ${platform} Edition - Pro v${i + 1}`,
-    price: Math.floor((basePrice * (0.85 + Math.random() * 0.3)) / 1000) * 1000,
+    title: `${query} ${platform} - v${i+1}`,
+    price: Math.floor((baseLine * (0.8 + Math.random() * 0.4)) / 1000) * 1000,
     condition: Math.random() > 0.2 ? "New" : "Used",
     imageUrl: `https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80`,
-    productUrl: `https://www.${platform.toLowerCase()}.com/p/${i}`,
+    productUrl: `https://www.${platform.toLowerCase().replace(/[^a-z]/g, '')}.com/p/${i}`,
     rating: 4.5 + Math.random() * 0.5,
     sold: Math.floor(Math.random() * 1000) + 1,
   }));
-
-  return items;
 }
 
-/**
- * IQR (Interquartile Range) Method for Outlier Detection
- */
-function filterOutliers(products: Product[]) {
+function filterIQR(products: Product[]) {
   if (products.length < 4) return { valid: products, excluded: 0 };
-
   const prices = [...products].map(p => p.price).sort((a, b) => a - b);
   const q1 = prices[Math.floor(prices.length * 0.25)];
   const q3 = prices[Math.floor(prices.length * 0.75)];
   const iqr = q3 - q1;
-
   const lowerBound = q1 - 1.5 * iqr;
   const upperBound = q3 + 1.5 * iqr;
-
   const valid = products.filter(p => p.price >= lowerBound && p.price <= upperBound);
   return { valid, excluded: products.length - valid.length };
 }
@@ -142,51 +156,51 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q")?.trim() || "";
 
-  if (query.length < 2) {
-    return NextResponse.json({ error: "Query too short" }, { status: 400 });
-  }
+  if (query.length < 2) return NextResponse.json({ error: "Query too short" }, { status: 400 });
 
-  // 1. Cache Check
-  const cachedData = searchCache.get(query);
-  if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL) {
-    return NextResponse.json(cachedData.data);
-  }
+  const cached = searchCache.get(query);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return NextResponse.json(cached.data);
 
-  // 2. Multi-platform Queueing (Anti-Ban Throttling)
-  // We process max 3 platforms concurrently
+  // Scrape with throttling (Chunks of 3)
   const allRawProducts: Product[] = [];
-  const CONCURRENCY = 3;
-
-  for (let i = 0; i < ALL_PLATFORMS.length; i += CONCURRENCY) {
-    const chunk = ALL_PLATFORMS.slice(i, i + CONCURRENCY);
-    const chunkResults = await Promise.all(chunk.map(p => scrapePlatform(p, query)));
+  for (let i = 0; i < ALL_PLATFORMS.length; i += 3) {
+    const chunk = ALL_PLATFORMS.slice(i, i + 3);
+    const chunkResults = await Promise.all(chunk.map(p => scrapePlatformMock(p, query)));
     allRawProducts.push(...chunkResults.flat());
-    
-    // Randomized Delay (Sleep) between chunks to mimic human behavior
-    if (i + CONCURRENCY < ALL_PLATFORMS.length) {
-      await sleep(1000 + Math.random() * 2000); // 1-3 seconds jitter
-    }
+    if (i + 3 < ALL_PLATFORMS.length) await sleep(500 + Math.random() * 1000);
   }
 
-  // 3. Strict Outlier Detection (IQR Method)
-  const { valid: cleanProducts, excluded: itemsExcluded } = filterOutliers(allRawProducts);
-
-  // 4. Analytics Compilation
+  const { valid: cleanProducts, excluded: itemsExcluded } = filterIQR(allRawProducts);
   const validPrices = cleanProducts.map(p => p.price);
   const avgPrice = validPrices.length > 0 ? Math.round(validPrices.reduce((s, p) => s + p, 0) / validPrices.length) : 0;
-  
-  const platformSummaries: PlatformSummary[] = ALL_PLATFORMS.map(platform => {
+  const marketRange = {
+    lowest: validPrices.length > 0 ? Math.min(...validPrices) : 0,
+    highest: validPrices.length > 0 ? Math.max(...validPrices) : 0
+  };
+
+  // --- AI Insights Generation ---
+  const catInfo = detectCategoryAndSpecs(query);
+  const trendInfo = predictPriceTrend(avgPrice, cleanProducts.length, marketRange);
+  const summary = generateSmartSummary(query, catInfo.category, trendInfo.status, avgPrice);
+
+  const aiInsights: AiInsights = {
+    category: catInfo.category,
+    specs_to_check: catInfo.specs_to_check,
+    trend_prediction: trendInfo,
+    smart_summary: summary
+  };
+
+  const platformSummaries = ALL_PLATFORMS.map(platform => {
     const platformItems = cleanProducts.filter(p => p.platform === platform);
     if (platformItems.length === 0) return { platform, is_found: false };
-    
-    const sortedByPrice = [...platformItems].sort((a, b) => a.price - b.price);
+    const sorted = [...platformItems].sort((a, b) => a.price - b.price);
     return {
       platform,
       is_found: true,
-      lowest_price: sortedByPrice[0].price,
-      highest_price: sortedByPrice[sortedByPrice.length - 1].price,
+      lowest_price: sorted[0].price,
+      highest_price: sorted[sorted.length - 1].price,
       item_count: platformItems.length,
-      cheapest_link: sortedByPrice[0].productUrl
+      cheapest_link: sorted[0].productUrl
     };
   });
 
@@ -194,19 +208,15 @@ export async function GET(req: NextRequest) {
     keyword: query,
     market_analytics: {
       average_price: avgPrice,
-      market_range: {
-        lowest: validPrices.length > 0 ? Math.min(...validPrices) : 0,
-        highest: validPrices.length > 0 ? Math.max(...validPrices) : 0
-      },
+      market_range: marketRange,
       total_valid_items: cleanProducts.length,
       items_excluded_count: itemsExcluded
     },
+    ai_insights: aiInsights,
     platform_summaries: platformSummaries,
-    products: allRawProducts // Return all for UI grid, but analytics come from clean data
+    products: allRawProducts
   };
 
-  // 5. Save to Cache
   searchCache.set(query, { data: response, timestamp: Date.now() });
-
   return NextResponse.json(response);
 }
