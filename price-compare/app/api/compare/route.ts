@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 export interface Product {
   id: string;
-  platform: "Tokopedia" | "Shopee" | "Lazada";
+  platform: string;
   title: string;
   price: number;
   condition: "New" | "Used";
@@ -12,7 +12,34 @@ export interface Product {
   sold: number;
 }
 
-const PLATFORMS: Product["platform"][] = ["Tokopedia", "Shopee", "Lazada"];
+export interface PlatformSummary {
+  platform: string;
+  is_found: boolean;
+  lowest_price?: number;
+  highest_price?: number;
+  item_count?: number;
+  cheapest_link?: string;
+}
+
+export interface MarketAnalytics {
+  average_price: number;
+  market_range: { lowest: number; highest: number };
+  total_valid_items: number;
+}
+
+const ALL_PLATFORMS = [
+  "Tokopedia",
+  "Shopee",
+  "Lazada",
+  "Blibli",
+  "Zalora",
+  "Sociolla",
+  "Orami",
+  "Traveloka",
+  "Tiket.com",
+  "Eraspace",
+  "Bhinneka",
+];
 
 const UNSPLASH_IMAGES: Record<string, string[]> = {
   default: [
@@ -20,70 +47,28 @@ const UNSPLASH_IMAGES: Record<string, string[]> = {
     "https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=400&q=80",
     "https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=400&q=80",
     "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80",
-    "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?w=400&q=80",
-    "https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=400&q=80",
   ],
-  nike: [
-    "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80",
-    "https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=400&q=80",
-    "https://images.unsplash.com/photo-1460353581641-37baddab0fa2?w=400&q=80",
-    "https://images.unsplash.com/photo-1515955656352-a1fa3ffcd111?w=400&q=80",
-    "https://images.unsplash.com/photo-1606813907291-d86efa9b94db?w=400&q=80",
-    "https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?w=400&q=80",
-  ],
-  iphone: [
+  tech: [
     "https://images.unsplash.com/photo-1592750475338-74b7b21085ab?w=400&q=80",
-    "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?w=400&q=80",
-    "https://images.unsplash.com/photo-1556656793-08538906a9f8?w=400&q=80",
-    "https://images.unsplash.com/photo-1512054502232-10a0a035d672?w=400&q=80",
-    "https://images.unsplash.com/photo-1580910051074-3eb694886505?w=400&q=80",
-    "https://images.unsplash.com/photo-1567581935884-3349723552ca?w=400&q=80",
-  ],
-  laptop: [
     "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&q=80",
-    "https://images.unsplash.com/photo-1525547719571-a2d4ac8945e2?w=400&q=80",
+    "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?w=400&q=80",
     "https://images.unsplash.com/photo-1593642632559-0c6d3fc62b89?w=400&q=80",
-    "https://images.unsplash.com/photo-1541807084-5c52b6b3adef?w=400&q=80",
-    "https://images.unsplash.com/photo-1588872657578-7efd81f4a689?w=400&q=80",
-    "https://images.unsplash.com/photo-1611078489935-0cb964de46d6?w=400&q=80",
   ],
 };
 
 function getImages(query: string): string[] {
   const q = query.toLowerCase();
-  if (q.includes("nike") || q.includes("shoe") || q.includes("sneaker") || q.includes("adidas"))
-    return UNSPLASH_IMAGES.nike;
-  if (q.includes("iphone") || q.includes("samsung") || q.includes("phone") || q.includes("hp"))
-    return UNSPLASH_IMAGES.iphone;
-  if (q.includes("laptop") || q.includes("macbook") || q.includes("notebook"))
-    return UNSPLASH_IMAGES.laptop;
+  if (["nike", "shoe", "phone", "iphone", "laptop", "macbook", "samsung", "asus", "gaming"].some(k => q.includes(k))) {
+    return UNSPLASH_IMAGES.tech;
+  }
   return UNSPLASH_IMAGES.default;
 }
 
-function generateTitle(query: string, platform: string, index: number): string {
-  const variants = [
-    `${query} - Original 100% Garansi Resmi ${platform}`,
-    `[READY STOCK] ${query} Terbaru Best Seller`,
-    `${query} Premium Quality Free Ongkir`,
-    `Jual ${query} Murah Berkualitas`,
-    `${query} - Official Store Terpercaya`,
-    `${query} Ori COD Tersedia`,
-    `New ${query} Promo Hari Ini Flash Sale`,
-    `${query} Grade A++ Anti Retur`,
-  ];
-  return variants[index % variants.length];
-}
-
-function generatePrice(platform: string, baseIndex: number): number {
-  const basePrices = [199000, 349000, 549000, 899000, 1299000, 1799000, 2499000, 3999000, 7999000, 12999000];
-  const base = basePrices[baseIndex % basePrices.length];
-  const multipliers: Record<string, number> = {
-    Tokopedia: 1.0,
-    Shopee: 0.95,
-    Lazada: 1.05,
-  };
-  const jitter = Math.floor((Math.random() * 50000 - 25000) / 1000) * 1000;
-  return Math.max(9000, base * multipliers[platform] + jitter);
+function generatePrice(platform: string, basePrice: number): number {
+  const pIndex = ALL_PLATFORMS.indexOf(platform);
+  const variance = 0.85 + (pIndex % 5) * 0.05; // 0.85 to 1.05
+  const jitter = Math.floor((Math.random() * 0.1 - 0.05) * basePrice);
+  return Math.floor((basePrice * variance + jitter) / 1000) * 1000;
 }
 
 export async function GET(req: NextRequest) {
@@ -91,37 +76,103 @@ export async function GET(req: NextRequest) {
   const query = searchParams.get("q")?.trim();
 
   if (!query || query.length < 2) {
-    return NextResponse.json({ products: [] });
+    return NextResponse.json({ 
+      keyword: query, 
+      products: [], 
+      market_analytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, total_valid_items: 0 },
+      platform_summaries: []
+    });
   }
 
-  // Simulate network delay (300-800ms)
-  await new Promise((r) => setTimeout(r, 300 + Math.random() * 500));
+  // Simulate delay
+  await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
 
   const images = getImages(query);
-  const products: Product[] = [];
-
-  let idx = 0;
-  for (const platform of PLATFORMS) {
-    const count = 4 + Math.floor(Math.random() * 3); // 4-6 items per platform
-    for (let i = 0; i < count; i++) {
-      const priceBase = idx + i;
-      products.push({
-        id: `${platform.toLowerCase()}-${idx + i}-${Date.now()}`,
-        platform,
-        title: generateTitle(query, platform, idx + i),
-        price: generatePrice(platform, priceBase),
-        condition: Math.random() > 0.25 ? "New" : "Used",
-        imageUrl: images[(idx + i) % images.length],
-        productUrl: `https://www.${platform.toLowerCase()}.com/search?q=${encodeURIComponent(query)}`,
-        rating: Math.round((3.8 + Math.random() * 1.2) * 10) / 10,
-        sold: Math.floor(Math.random() * 500) + 10,
-      });
-      idx++;
-    }
+  const skipPlatformsCount = 3 + Math.floor(Math.random() * 4); // 3-6 platforms
+  const skipIndices = new Set<number>();
+  while (skipIndices.size < skipPlatformsCount) {
+    skipIndices.add(Math.floor(Math.random() * ALL_PLATFORMS.length));
   }
 
-  // Shuffle to mix platforms
-  products.sort(() => Math.random() - 0.5);
+  const basePriceMap: Record<string, number> = {
+    iphone: 12000000,
+    laptop: 8500000,
+    nike: 1200000,
+    skincare: 250000,
+  };
+  const matchedKey = Object.keys(basePriceMap).find(k => query.toLowerCase().includes(k));
+  const basePrice = matchedKey ? basePriceMap[matchedKey] : 500000;
 
-  return NextResponse.json({ products, query });
+  const rawProducts: Product[] = [];
+
+  ALL_PLATFORMS.forEach((platform, idx) => {
+    if (skipIndices.has(idx)) {
+      return;
+    }
+
+    const itemCount = 4 + Math.floor(Math.random() * 5); // 4-8 items
+    const platformItems: Product[] = [];
+    
+    for (let i = 0; i < itemCount; i++) {
+        // Occasionally inject an outlier (very cheap accessory) to test the filtering
+        const isOutlier = Math.random() < 0.15;
+        const price = isOutlier ? (15000 + Math.random() * 50000) : generatePrice(platform, basePrice);
+        
+        const item: Product = {
+            id: `${platform}-${idx}-${i}-${Date.now()}`,
+            platform,
+            title: `${query} Original ${platform} Edition - v${i+1}`,
+            price,
+            condition: Math.random() > 0.3 ? "New" : "Used",
+            imageUrl: images[(idx + i) % images.length],
+            productUrl: `https://www.${platform.toLowerCase().replace(/[^a-z0-9]/g, '')}.com/search?q=${encodeURIComponent(query)}`,
+            rating: Math.round((4.2 + Math.random() * 0.8) * 10) / 10,
+            sold: Math.floor(Math.random() * 500) + 1,
+        };
+        platformItems.push(item);
+        rawProducts.push(item);
+    }
+  });
+
+  // --- Advanced Analytics with Outlier Filtering ---
+  // Simple heuristic: calculate median then filter items < 0.3x or > 3x median
+  const sortedPrices = [...rawProducts].map(p => p.price).sort((a, b) => a - b);
+  const median = sortedPrices[Math.floor(sortedPrices.length / 2)];
+  const validProducts = rawProducts.filter(p => p.price > median * 0.3 && p.price < median * 3);
+  
+  const totalPrice = validProducts.reduce((sum, p) => sum + p.price, 0);
+  const avgPrice = validProducts.length > 0 ? Math.round(totalPrice / validProducts.length) : 0;
+  
+  const validPrices = validProducts.map(p => p.price);
+  const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
+  const maxPrice = validPrices.length > 0 ? Math.max(...validPrices) : 0;
+
+  // Re-calculate platform summaries using ONLY valid items for cleaner display
+  const platformMarketData = ALL_PLATFORMS.map((platform, idx) => {
+    if (skipIndices.has(idx)) return { platform, is_found: false };
+    
+    const validPlatformItems = validProducts.filter(p => p.platform === platform);
+    if (validPlatformItems.length === 0) return { platform, is_found: false };
+
+    const sortedByPrice = [...validPlatformItems].sort((a, b) => a.price - b.price);
+    return {
+      platform,
+      is_found: true,
+      lowest_price: sortedByPrice[0].price,
+      highest_price: sortedByPrice[sortedByPrice.length - 1].price,
+      item_count: validPlatformItems.length,
+      cheapest_link: sortedByPrice[0].productUrl,
+    };
+  });
+
+  return NextResponse.json({
+    keyword: query,
+    market_analytics: {
+      average_price: avgPrice,
+      market_range: { lowest: minPrice, highest: maxPrice },
+      total_valid_items: validProducts.length,
+    },
+    platform_summaries: platformMarketData,
+    products: rawProducts // Grid shows all items, but analytics are cleaned
+  });
 }
