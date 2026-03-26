@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// --- STEALTH SCRAPER IMPORTS (Assume installed: npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth) ---
+// import puppeteer from "puppeteer-extra";
+// import StealthPlugin from "puppeteer-extra-plugin-stealth";
+// puppeteer.use(StealthPlugin());
+
+// --- Native In-Memory Cache with TTL (Zero Dependency) ---
+const CACHE_TTL = 3600 * 1000; // 1 Hour in ms
+const searchCache = new Map<string, { data: any; timestamp: number }>();
+
+// --- Types ---
 export interface Product {
   id: string;
   platform: string;
@@ -25,154 +35,178 @@ export interface MarketAnalytics {
   average_price: number;
   market_range: { lowest: number; highest: number };
   total_valid_items: number;
+  items_excluded_count: number;
 }
 
 const ALL_PLATFORMS = [
-  "Tokopedia",
-  "Shopee",
-  "Lazada",
-  "Blibli",
-  "Zalora",
-  "Sociolla",
-  "Orami",
-  "Traveloka",
-  "Tiket.com",
-  "Eraspace",
-  "Bhinneka",
+  "Tokopedia", "Shopee", "Lazada", "Blibli", "Zalora", 
+  "Sociolla", "Orami", "Traveloka", "Tiket.com", "Eraspace", "Bhinneka"
 ];
 
-const UNSPLASH_IMAGES: Record<string, string[]> = {
-  default: [
-    "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80",
-    "https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=400&q=80",
-    "https://images.unsplash.com/photo-1491553895911-0055eca6402d?w=400&q=80",
-    "https://images.unsplash.com/photo-1542291026-7eec264c27ff?w=400&q=80",
-  ],
-  tech: [
-    "https://images.unsplash.com/photo-1592750475338-74b7b21085ab?w=400&q=80",
-    "https://images.unsplash.com/photo-1496181133206-80ce9b88a853?w=400&q=80",
-    "https://images.unsplash.com/photo-1510557880182-3d4d3cba35a5?w=400&q=80",
-    "https://images.unsplash.com/photo-1593642632559-0c6d3fc62b89?w=400&q=80",
-  ],
-};
+// --- Utility Functions ---
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function getImages(query: string): string[] {
-  const q = query.toLowerCase();
-  if (["nike", "shoe", "phone", "iphone", "laptop", "macbook", "samsung", "asus", "gaming"].some(k => q.includes(k))) {
-    return UNSPLASH_IMAGES.tech;
-  }
-  return UNSPLASH_IMAGES.default;
+/**
+ * Skeleton for Platform Scraping
+ * HUMAN: This is where you will eventually put your page.evaluate logic
+ */
+async function scrapePlatform(platform: string, query: string): Promise<Product[]> {
+  // Simulate is_found: false for 3-6 platforms randomly per query
+  const shouldSkip = Math.random() < 0.4;
+  if (shouldSkip) return [];
+
+  // --- PUPPETEER SKELETON ---
+  /*
+  const browser = await puppeteer.launch({ headless: "new" });
+  const page = await browser.newPage();
+  
+  // Set a realistic User-Agent
+  await page.setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36");
+  
+  // Navigate to Marketplace Search
+  const searchUrl = `https://www.google.com/search?q=site:${platform.toLowerCase()}.com+${encodeURIComponent(query)}`;
+  await page.goto(searchUrl, { waitUntil: "networkidle2" });
+
+  const products = await page.evaluate((platform) => {
+    // TODO: HUMAN, PASTE THE PRODUCT CARD SELECTOR HERE
+    const items = document.querySelectorAll('.TODO_PRODUCT_CARD'); 
+    
+    return Array.from(items).slice(0, 5).map((el, i) => {
+      // TODO: HUMAN, PASTE THE TITLE CSS SELECTOR HERE
+      const title = el.querySelector('.TODO_TITLE_CLASS')?.textContent?.trim() || "";
+      
+      // TODO: HUMAN, PASTE THE PRICE CSS SELECTOR HERE
+      const priceText = el.querySelector('.TODO_PRICE_CLASS')?.textContent?.replace(/[^0-9]/g, "") || "0";
+      
+      // TODO: HUMAN, PASTE THE IMAGE URL SELECTOR HERE
+      const imageUrl = el.querySelector('img')?.src || "";
+      
+      // TODO: HUMAN, PASTE THE DIRECT PRODUCT LINK SELECTOR HERE
+      const productUrl = el.querySelector('a')?.href || "";
+
+      return {
+        id: `${platform}-${Date.now()}-${i}`,
+        platform,
+        title,
+        price: parseInt(priceText),
+        condition: "New" as const,
+        imageUrl,
+        productUrl,
+        rating: 4.8,
+        sold: 100
+      };
+    });
+  }, platform);
+
+  await browser.close();
+  return products;
+  */
+
+  // --- MOCK DATA GENERATOR (Until you paste real selectors) ---
+  const basePrice = 5000000 + (Math.random() * 2000000);
+  const items: Product[] = Array.from({ length: 4 }).map((_, i) => ({
+    id: `${platform}-${i}-${Date.now()}`,
+    platform,
+    title: `${query} Original ${platform} Edition - Pro v${i + 1}`,
+    price: Math.floor((basePrice * (0.85 + Math.random() * 0.3)) / 1000) * 1000,
+    condition: Math.random() > 0.2 ? "New" : "Used",
+    imageUrl: `https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80`,
+    productUrl: `https://www.${platform.toLowerCase()}.com/p/${i}`,
+    rating: 4.5 + Math.random() * 0.5,
+    sold: Math.floor(Math.random() * 1000) + 1,
+  }));
+
+  return items;
 }
 
-function generatePrice(platform: string, basePrice: number): number {
-  const pIndex = ALL_PLATFORMS.indexOf(platform);
-  const variance = 0.85 + (pIndex % 5) * 0.05; // 0.85 to 1.05
-  const jitter = Math.floor((Math.random() * 0.1 - 0.05) * basePrice);
-  return Math.floor((basePrice * variance + jitter) / 1000) * 1000;
+/**
+ * IQR (Interquartile Range) Method for Outlier Detection
+ */
+function filterOutliers(products: Product[]) {
+  if (products.length < 4) return { valid: products, excluded: 0 };
+
+  const prices = [...products].map(p => p.price).sort((a, b) => a - b);
+  const q1 = prices[Math.floor(prices.length * 0.25)];
+  const q3 = prices[Math.floor(prices.length * 0.75)];
+  const iqr = q3 - q1;
+
+  const lowerBound = q1 - 1.5 * iqr;
+  const upperBound = q3 + 1.5 * iqr;
+
+  const valid = products.filter(p => p.price >= lowerBound && p.price <= upperBound);
+  return { valid, excluded: products.length - valid.length };
 }
 
+// --- API Handler ---
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const query = searchParams.get("q")?.trim();
+  const query = searchParams.get("q")?.trim() || "";
 
-  if (!query || query.length < 2) {
-    return NextResponse.json({ 
-      keyword: query, 
-      products: [], 
-      market_analytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, total_valid_items: 0 },
-      platform_summaries: []
-    });
+  if (query.length < 2) {
+    return NextResponse.json({ error: "Query too short" }, { status: 400 });
   }
 
-  // Simulate delay
-  await new Promise((r) => setTimeout(r, 600 + Math.random() * 400));
-
-  const images = getImages(query);
-  const skipPlatformsCount = 3 + Math.floor(Math.random() * 4); // 3-6 platforms
-  const skipIndices = new Set<number>();
-  while (skipIndices.size < skipPlatformsCount) {
-    skipIndices.add(Math.floor(Math.random() * ALL_PLATFORMS.length));
+  // 1. Cache Check
+  const cachedData = searchCache.get(query);
+  if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL) {
+    return NextResponse.json(cachedData.data);
   }
 
-  const basePriceMap: Record<string, number> = {
-    iphone: 12000000,
-    laptop: 8500000,
-    nike: 1200000,
-    skincare: 250000,
-  };
-  const matchedKey = Object.keys(basePriceMap).find(k => query.toLowerCase().includes(k));
-  const basePrice = matchedKey ? basePriceMap[matchedKey] : 500000;
+  // 2. Multi-platform Queueing (Anti-Ban Throttling)
+  // We process max 3 platforms concurrently
+  const allRawProducts: Product[] = [];
+  const CONCURRENCY = 3;
 
-  const rawProducts: Product[] = [];
-
-  ALL_PLATFORMS.forEach((platform, idx) => {
-    if (skipIndices.has(idx)) {
-      return;
-    }
-
-    const itemCount = 4 + Math.floor(Math.random() * 5); // 4-8 items
-    const platformItems: Product[] = [];
+  for (let i = 0; i < ALL_PLATFORMS.length; i += CONCURRENCY) {
+    const chunk = ALL_PLATFORMS.slice(i, i + CONCURRENCY);
+    const chunkResults = await Promise.all(chunk.map(p => scrapePlatform(p, query)));
+    allRawProducts.push(...chunkResults.flat());
     
-    for (let i = 0; i < itemCount; i++) {
-        // Occasionally inject an outlier (very cheap accessory) to test the filtering
-        const isOutlier = Math.random() < 0.15;
-        const price = isOutlier ? (15000 + Math.random() * 50000) : generatePrice(platform, basePrice);
-        
-        const item: Product = {
-            id: `${platform}-${idx}-${i}-${Date.now()}`,
-            platform,
-            title: `${query} Original ${platform} Edition - v${i+1}`,
-            price,
-            condition: Math.random() > 0.3 ? "New" : "Used",
-            imageUrl: images[(idx + i) % images.length],
-            productUrl: `https://www.${platform.toLowerCase().replace(/[^a-z0-9]/g, '')}.com/search?q=${encodeURIComponent(query)}`,
-            rating: Math.round((4.2 + Math.random() * 0.8) * 10) / 10,
-            sold: Math.floor(Math.random() * 500) + 1,
-        };
-        platformItems.push(item);
-        rawProducts.push(item);
+    // Randomized Delay (Sleep) between chunks to mimic human behavior
+    if (i + CONCURRENCY < ALL_PLATFORMS.length) {
+      await sleep(1000 + Math.random() * 2000); // 1-3 seconds jitter
     }
-  });
+  }
 
-  // --- Advanced Analytics with Outlier Filtering ---
-  // Simple heuristic: calculate median then filter items < 0.3x or > 3x median
-  const sortedPrices = [...rawProducts].map(p => p.price).sort((a, b) => a - b);
-  const median = sortedPrices[Math.floor(sortedPrices.length / 2)];
-  const validProducts = rawProducts.filter(p => p.price > median * 0.3 && p.price < median * 3);
-  
-  const totalPrice = validProducts.reduce((sum, p) => sum + p.price, 0);
-  const avgPrice = validProducts.length > 0 ? Math.round(totalPrice / validProducts.length) : 0;
-  
-  const validPrices = validProducts.map(p => p.price);
-  const minPrice = validPrices.length > 0 ? Math.min(...validPrices) : 0;
-  const maxPrice = validPrices.length > 0 ? Math.max(...validPrices) : 0;
+  // 3. Strict Outlier Detection (IQR Method)
+  const { valid: cleanProducts, excluded: itemsExcluded } = filterOutliers(allRawProducts);
 
-  // Re-calculate platform summaries using ONLY valid items for cleaner display
-  const platformMarketData = ALL_PLATFORMS.map((platform, idx) => {
-    if (skipIndices.has(idx)) return { platform, is_found: false };
+  // 4. Analytics Compilation
+  const validPrices = cleanProducts.map(p => p.price);
+  const avgPrice = validPrices.length > 0 ? Math.round(validPrices.reduce((s, p) => s + p, 0) / validPrices.length) : 0;
+  
+  const platformSummaries: PlatformSummary[] = ALL_PLATFORMS.map(platform => {
+    const platformItems = cleanProducts.filter(p => p.platform === platform);
+    if (platformItems.length === 0) return { platform, is_found: false };
     
-    const validPlatformItems = validProducts.filter(p => p.platform === platform);
-    if (validPlatformItems.length === 0) return { platform, is_found: false };
-
-    const sortedByPrice = [...validPlatformItems].sort((a, b) => a.price - b.price);
+    const sortedByPrice = [...platformItems].sort((a, b) => a.price - b.price);
     return {
       platform,
       is_found: true,
       lowest_price: sortedByPrice[0].price,
       highest_price: sortedByPrice[sortedByPrice.length - 1].price,
-      item_count: validPlatformItems.length,
-      cheapest_link: sortedByPrice[0].productUrl,
+      item_count: platformItems.length,
+      cheapest_link: sortedByPrice[0].productUrl
     };
   });
 
-  return NextResponse.json({
+  const response = {
     keyword: query,
     market_analytics: {
       average_price: avgPrice,
-      market_range: { lowest: minPrice, highest: maxPrice },
-      total_valid_items: validProducts.length,
+      market_range: {
+        lowest: validPrices.length > 0 ? Math.min(...validPrices) : 0,
+        highest: validPrices.length > 0 ? Math.max(...validPrices) : 0
+      },
+      total_valid_items: cleanProducts.length,
+      items_excluded_count: itemsExcluded
     },
-    platform_summaries: platformMarketData,
-    products: rawProducts // Grid shows all items, but analytics are cleaned
-  });
+    platform_summaries: platformSummaries,
+    products: allRawProducts // Return all for UI grid, but analytics come from clean data
+  };
+
+  // 5. Save to Cache
+  searchCache.set(query, { data: response, timestamp: Date.now() });
+
+  return NextResponse.json(response);
 }
