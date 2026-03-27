@@ -243,7 +243,7 @@ export default function Home() {
     setHasSearched(true);
     setData(null);
     try {
-      const res = await fetch(`/api/compare?q=${encodeURIComponent(q)}`);
+      const res = await fetch(`/api/compare?q=${encodeURIComponent(q)}&t=${Date.now()}`);
       const result = await res.json();
       setData(result);
       setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: 'smooth' }), 300);

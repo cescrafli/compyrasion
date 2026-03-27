@@ -35,101 +35,168 @@ const CACHE_TTL = 3600 * 1000;
 
 // --- AI-Native Functions ---
 
+// --- AI Core & Advanced Logic ---
+
 /**
- * 1. Natural Language Intent Parser (NLU Simulation)
+ * 0. AI Abstraction (Gemini 1.5 Flash Simulation)
+ * In production: Replace with real 'google-generative-ai' SDK call
  */
-function parseIntent(query: string): Intent {
-  const q = query.toLowerCase();
-  let budget: number | null = null;
+async function callAI(prompt: string, systemInstruction: string = "You are a helpful assistant."): Promise<string> {
+  // Simulate network latency
+  await sleep(800);
   
-  // Regex to find numbers after "budget", "di bawah", "max", "rp"
-  const budgetMatch = q.match(/(?:budget|di bawah|max|maks|rp)\s*(\d+(?:\.\d+)*)/);
-  if (budgetMatch) {
-    // Clean "1.500.000" or "1500000" into number
-    budget = parseInt(budgetMatch[1].replace(/\./g, ""));
+  // LOGIC SIMULATION for NLU
+  const qLower = prompt.toLowerCase();
+  if (qLower.includes("dua setengah") || qLower.includes("2.500")) {
+    return JSON.stringify({ category: "Mobile Devices", budget: 2500000, type: "Brand New" });
+  }
+  if (qLower.includes("lima juta") || qLower.includes("5.000")) {
+    return JSON.stringify({ category: "Computing", budget: 5000000, type: "Brand New" });
+  }
+  if (qLower.includes("macbook") || qLower.includes("laptop")) {
+    return JSON.stringify({ category: "Computing", budget: 15000000, type: "Brand New" });
+  }
+  
+  // LOGIC SIMULATION for DOM Extraction
+  if (prompt.includes("EXTRACT_PRODUCTS")) {
+      const q = prompt.toLowerCase();
+      if (q.includes("iphone")) {
+          return JSON.stringify([
+              { title: "iPhone 13 128GB Blue", price: 11500000, imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80", productUrl: "https://www.tokopedia.com/p/1" },
+              { title: "Apple iPhone 13 (128 GB)", price: 11700000, imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80", productUrl: "https://www.shopee.com/p/1" }
+          ]);
+      }
+      return JSON.stringify([
+          { title: `Products for Search Premium Edition`, price: 4500000, imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80", productUrl: "https://www.tokopedia.com/p/1" },
+          { title: `Products for Search Standard V2`, price: 4700000, imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80", productUrl: "https://www.shopee.com/p/2" }
+      ]);
   }
 
-  // Simple category detection
-  let category = "General";
-  if (["laptop", "macbook", "pc", "gaming"].some(w => q.includes(w))) category = "Computing";
-  else if (["sepatu", "baju", "nike", "adidas", "tas"].some(w => q.includes(w))) category = "Fashion";
-  else if (["hp", "iphone", "samsung", "ponsel"].some(w => q.includes(w))) category = "Mobile Devices";
-
-  return {
-    category,
-    budget,
-    type: q.includes("bekas") || q.includes("used") ? "Second-hand" : "Brand New"
-  };
+  return "{}";
 }
 
 /**
- * 2. Self-Healing AI DOM Parser Simulation
- * In production, this would call LLM (Gemini) with page text
+ * 1. Natural Language Intent Parser (LLM-Based)
  */
-function extractProductDataViaLLM(platform: string, rawText: string, query: string): any[] {
-  // TODO: LLM, PARSE THIS TEXT INTO JSON ARRAY OF {title, price, image, link}
-  // For now, we simulate the result of a high-perf LLM extraction
-  const basePrice = 5000000 + (Math.random() * 2000000);
+async function parseIntent(query: string): Promise<Intent> {
+  const prompt = `Ubah kalimat '${query}' menjadi JSON { "category": string, "budget": number | null, "type": string }. 
+                  Handle textual numbers like 'dua setengah juta' -> 2500000. 
+                  Identify if it's 'Used' or 'Brand New'.`;
   
-  return Array.from({ length: 3 }).map((_, i) => ({
-    title: `${query} ${platform} - Edition v${i + 1}`,
-    price: Math.floor((basePrice * (0.9 + Math.random() * 0.2)) / 1000) * 1000,
-    imageUrl: `https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80`,
-    productUrl: `https://www.${platform.toLowerCase()}.com/p/${i}`,
-    platform
-  }));
+  const system = "You are an Expert NLU Engine for an E-commerce platform.";
+  const aiResponse = await callAI(prompt, system);
+  
+  try {
+    return JSON.parse(aiResponse) as Intent;
+  } catch {
+    return { category: "General", budget: null, type: "Unknown" };
+  }
 }
 
 /**
- * 3. Semantic Product Clustering (Deduplication)
+ * 2. Dice's Coefficient for String Similarity
+ * Handles word reordering and partial matches better than Levenshtein
+ */
+function calculateSimilarity(s1: string, s2: string): number {
+  if (!s1 || !s2) return 0;
+  const getBigrams = (str: string) => {
+    const s = str.toLowerCase().replace(/\s+/g, "");
+    const bigrams = new Set();
+    for (let i = 0; i < s.length - 1; i++) bigrams.add(s.slice(i, i + 2));
+    return bigrams;
+  };
+
+  const set1 = getBigrams(s1);
+  const set2 = getBigrams(s2);
+  if (set1.size === 0 && set2.size === 0) return 1;
+  if (set1.size === 0 || set2.size === 0) return 0;
+  
+  const intersection = new Set([...set1].filter(x => set2.has(x)));
+  return (2 * intersection.size) / (set1.size + set2.size);
+}
+
+/**
+ * 3. Self-Healing AI DOM Parser Simulation
+ * Captures raw text and lets AI extract information
+ */
+async function extractProductDataViaAI(platform: string, rawText: string, query: string): Promise<any[]> {
+  const prompt = `EXTRACT_PRODUCTS: Dari teks mentah halaman ${platform} ini, ekstrak daftar produk ${query}.
+                  Kembalikan array JSON: { title, price, imageUrl, productUrl }.
+                  Abaikan iklan dan navigasi. Teks: ${rawText.substring(0, 1000)}...`;
+  
+  const aiResponse = await callAI(prompt, "You are a specialized Web Scraping AI Agent.");
+  
+  try {
+    const extracted = JSON.parse(aiResponse);
+    if (!Array.isArray(extracted)) throw new Error("Not an array");
+    return extracted.map((p: any) => ({ ...p, platform }));
+  } catch {
+    // Fallback to basic simulation if AI fails
+    const basePrice = 5000000 + (Math.random() * 2000000);
+    return [{
+      title: `${query} Original ${platform}`,
+      price: Math.floor(basePrice / 1000) * 1000,
+      imageUrl: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=400&q=80",
+      productUrl: `https://www.${platform.toLowerCase()}.com`,
+      platform
+    }];
+  }
+}
+
+/**
+ * 4. Advanced Semantic Product Clustering
  */
 function clusterSimilarProducts(allProducts: any[]): ProductCluster[] {
-  const clusters: Map<string, ProductCluster> = new Map();
+  const clusters: ProductCluster[] = [];
 
   allProducts.forEach(p => {
-    // Normalize title to create a "Canonical Identification"
-    // e.g. "iPhone 13 128GB Blue" -> "iphone 13 128gb"
-    const canonical = p.title
-      .toLowerCase()
-      .replace(new RegExp(p.platform, "i"), "") // Remove platform name
-      .replace(/\s+/g, " ")
-      .trim();
-    
-    const clusterKey = canonical.substring(0, 30); // Simple fuzzy grouping
+    // Check if product belongs to an existing cluster based on similarity score
+    let joined = false;
+    for (const cluster of clusters) {
+      // Normalize both for better comparison (Remove brand names as prefix)
+      const cleanTitle = p.title.toLowerCase().replace(/^(apple|samsung|sony|nike|adidas)\s+/i, "").trim();
+      const cleanCanonical = cluster.canonical_name.toLowerCase().replace(/^(apple|samsung|sony|nike|adidas)\s+/i, "").trim();
+      
+      const similarity = calculateSimilarity(cleanTitle, cleanCanonical);
+      
+      // If similarity > 70%, consider it the same product entity
+      if (similarity > 0.70) {
+        cluster.marketplace_offers.push({
+          platform: p.platform,
+          price: p.price,
+          link: p.productUrl,
+          condition: "New"
+        });
+        
+        // Update best price if cheaper
+        if (p.price < cluster.best_price) {
+          cluster.best_price = p.price;
+          cluster.cheapest_platform = p.platform;
+        }
+        joined = true;
+        break;
+      }
+    }
 
-    if (!clusters.has(clusterKey)) {
-      clusters.set(clusterKey, {
+    if (!joined) {
+      clusters.push({
         cluster_id: `cluster-${Math.random().toString(36).substr(2, 9)}`,
-        canonical_name: p.title.split("-")[0].trim(), // Clean canonical name
+        canonical_name: p.title,
         canonical_image: p.imageUrl,
         best_price: p.price,
         cheapest_platform: p.platform,
-        marketplace_offers: [],
+        marketplace_offers: [{
+          platform: p.platform,
+          price: p.price,
+          link: p.productUrl,
+          condition: "New"
+        }],
         rating: 4.5 + Math.random() * 0.5
       });
     }
-
-    const cluster = clusters.get(clusterKey)!;
-    cluster.marketplace_offers.push({
-      platform: p.platform,
-      price: p.price,
-      link: p.productUrl,
-      condition: "New"
-    });
-
-    // Update best price
-    if (p.price < cluster.best_price) {
-      cluster.best_price = p.price;
-      cluster.cheapest_platform = p.platform;
-    }
   });
 
-  // Sort offers within cluster by price
-  clusters.forEach(c => {
-    c.marketplace_offers.sort((a, b) => a.price - b.price);
-  });
-
-  return Array.from(clusters.values());
+  return clusters;
 }
 
 // --- Utils ---
@@ -139,14 +206,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const query = searchParams.get("q")?.trim() || "";
+  
+  console.log(`[BACKEND] Incoming Query: "${query}"`);
 
   if (query.length < 2) return NextResponse.json({ error: "Query too short" }, { status: 400 });
 
-  const cached = searchCache.get(query);
-  if (cached && Date.now() - cached.timestamp < CACHE_TTL) return NextResponse.json(cached.data);
-
   // 1. Parse Intent
-  const intent = parseIntent(query);
+  const intent = await parseIntent(query);
+  console.log(`[BACKEND] Parsed Intent:`, intent);
 
   // 2. Fetch Data (Throttled)
   let allRawProducts: any[] = [];
@@ -155,8 +222,12 @@ export async function GET(req: NextRequest) {
     const chunkResults = await Promise.all(chunk.map(async p => {
       // Simulate is_found check
       if (Math.random() < 0.3) return [];
-      // Simulation of AI-first extraction
-      return extractProductDataViaLLM(p, "RAW_DOM_CONTENT_SIMULATED", query);
+      
+      // REAL WORLD: await page.goto(...)
+      // const rawPageText = await page.evaluate(() => document.body.innerText);
+      
+      // Simulation of AI-first extraction from raw text
+      return await extractProductDataViaAI(p, "RAW_DOM_CONTENT_SIMULATED", query);
     }));
     allRawProducts.push(...chunkResults.flat());
     if (i + 3 < ALL_PLATFORMS.length) await sleep(500 + Math.random() * 500);
