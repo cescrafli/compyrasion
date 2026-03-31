@@ -69,8 +69,7 @@ export async function GET(request: Request) {
         // 🛡️ Promise.race forces the scraping to yield if the server queue is backed up
         rawProducts = await Promise.race([
           runScrapingPipeline(intent.clean_keyword, [
-            "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak",
-            "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
+            "Tokopedia", "Shopee"
           ], abortState),
           timeoutPromise
         ]);

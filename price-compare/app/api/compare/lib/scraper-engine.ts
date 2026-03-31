@@ -1,7 +1,6 @@
 import puppeteer from 'puppeteer-extra';
-// @ts-ignore
-import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 const PLATFORMS = [
@@ -32,30 +31,18 @@ const getBrowserInstance = async () => {
         if (!browserLaunchPromise) {
             browserLaunchPromise = (async () => {
                 try {
-                    // Uncomment below for actual puppeteer launch
-                    /*
-                    globalBrowserInstance = await puppeteer.launch({ 
+                    // MENGAKTIFKAN PUPPETEER ASLI (TanPA MOCK LAGI)
+                    globalBrowserInstance = await puppeteer.launch({
                         headless: true,
-                        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
+                        args: [
+                            '--no-sandbox',
+                            '--disable-setuid-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--window-size=1920,1080' // Penting agar website merender versi desktop
+                        ]
                     });
-                    */
 
-                    // Dummy mock for algorithmic demonstration
-                    globalBrowserInstance = {
-                        newPage: async () => ({
-                            goto: async () => { },
-                            close: async () => { }
-                        }),
-                        close: async () => {
-                            globalBrowserInstance = null;
-                            browserLaunchPromise = null;
-                        },
-                        // Mock the 'on' event emitter
-                        on: (event: string, callback: any) => { }
-                    };
-
-                    // 🛡️ THE PHANTOM BROWSER FIX: 
-                    // Dengarkan jika browser mati dibunuh OS atau crash
+                    // 🛡️ THE PHANTOM BROWSER FIX
                     if (globalBrowserInstance && typeof globalBrowserInstance.on === 'function') {
                         globalBrowserInstance.on('disconnected', () => {
                             console.warn("⚠️ ALARM: Browser terputus atau dibunuh OS. Mereset Singleton Lock...");
@@ -93,7 +80,6 @@ const killZombieProcesses = async () => {
     }
 };
 
-// Node.js process hooks
 process.on('SIGINT', async () => { await killZombieProcesses(); process.exit(); });
 process.on('SIGTERM', async () => { await killZombieProcesses(); process.exit(); });
 process.on('exit', () => {
@@ -107,20 +93,17 @@ const MAX_CONCURRENT_PAGES = 5;
 let activePagesCount = 0;
 const concurrencyQueue: (() => void)[] = [];
 
-// Lock Queue
 const acquireConcurrencySlot = async (): Promise<void> => {
     return new Promise((resolve) => {
         if (activePagesCount < MAX_CONCURRENT_PAGES) {
             activePagesCount++;
             resolve();
         } else {
-            // Queue this request, wait until a slot opens
             concurrencyQueue.push(resolve);
         }
     });
 };
 
-// Release Queue
 const releaseConcurrencySlot = () => {
     activePagesCount--;
     if (concurrencyQueue.length > 0) {
@@ -133,30 +116,20 @@ const releaseConcurrencySlot = () => {
 };
 
 // =========================================
-// MAIN PIPELINE
+// MAIN PIPELINE (HEURISTIC AUTO-EXTRACTOR)
 // =========================================
 export async function runScrapingPipeline(
     cleanKeyword: string,
-    targetPlatforms: string[] = PLATFORMS,
+    targetPlatforms: string[] = ["Tokopedia", "Shopee"], // Fokus ke 2 raksasa dulu untuk uji coba
     abortState?: AbortState
 ): Promise<ScrapedProduct[]> {
     const results: ScrapedProduct[] = [];
-
-    // Lazily ignite or pull the global Chrome instance
     const browser = await getBrowserInstance();
 
     const scrapePlatform = async (platform: string): Promise<ScrapedProduct[]> => {
-
-        // 🛡️ GHOST PREVENTION: Don't even enter the queue if the orchestrator hung up
         if (abortState?.aborted) return [];
-
-        // 🛡️ OOM PROTECTION: Block execution thread here until a slot opens globally
         await acquireConcurrencySlot();
-
-        // 🛡️ CANCELLATION AWARENESS: Fail immediately if the Orchestrator already gave up
-        // This stops background promises from continuing their extraction loops uselessly
         if (abortState?.aborted) {
-            console.warn(`[ABORTED] Skipping scrape for ${platform} - Orchestrator closed thread.`);
             releaseConcurrencySlot();
             return [];
         }
@@ -164,10 +137,12 @@ export async function runScrapingPipeline(
         let page: any = null;
 
         try {
-            // Example real code using the shared instance
             page = await browser.newPage();
 
-            // 🛡️ BATCH NETWORK INTERCEPTOR: Block heavy resources (Images, CSS, Fonts) for extreme speed
+            // Menyamar sebagai manusia
+            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+
+            // 🛡️ NETWORK INTERCEPTOR: Kecepatan super, blokir gambar & CSS
             if (page && typeof page.setRequestInterception === 'function') {
                 await page.setRequestInterception(true);
                 page.on('request', (req: any) => {
@@ -180,47 +155,95 @@ export async function runScrapingPipeline(
                 });
             }
 
-            await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-            // TODO: Real CSS Selectors Here
+            // Atur URL Target
+            let targetUrl = `https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`;
+            if (platform === 'Tokopedia') targetUrl = `https://www.tokopedia.com/search?q=${encodeURI(cleanKeyword)}`;
+            if (platform === 'Shopee') targetUrl = `https://shopee.co.id/search?keyword=${encodeURI(cleanKeyword)}`;
 
-            // Simulated Extraction Delay (Strictly within Orchestrator bounds)
-            await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 400));
+            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
 
-            const mockedResults: ScrapedProduct[] = [];
-            const numItems = Math.floor(Math.random() * 5) + 2;
+            // Gulir layar ke bawah sedikit untuk memicu Lazy-Load produk
+            await page.evaluate(() => window.scrollBy(0, 800));
+            // Beri waktu 1.5 detik agar framework Vue/React merender DOM
+            await new Promise(resolve => setTimeout(resolve, 1500));
 
-            for (let i = 0; i < numItems; i++) {
-                const basePrice = 1000000 + (Math.random() * 2000000);
-                const priceJitter = basePrice + (Math.random() * 500000 - 250000);
+            // 🤖 AUTO-EXTRACTOR HEURISTIC (TANPA CSS SELECTOR)
+            const scrapedResults = await page.evaluate((plat: string) => {
+                const extracted: ScrapedProduct[] = [];
+                // Cari semua elemen teks
+                const textNodes = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+                let currentNode = textNodes.nextNode();
+                const priceElements = [];
 
-                mockedResults.push({
-                    title: `${cleanKeyword} ${["Pro", "Max", "Original", "Promo", "Baru", "13", "128gb", "Ram 8GB"][Math.floor(Math.random() * 8)]} di ${platform}`,
-                    price: Math.round(priceJitter / 1000) * 1000,
-                    platform: platform,
-                    url: `https://www.${platform.toLowerCase()}.com/product/${Math.floor(Math.random() * 100000)}`,
-                    image: `https://images.${platform.toLowerCase()}.com/item_${Math.floor(Math.random() * 100)}.jpg`
-                });
-            }
-            return mockedResults;
+                // 1. Identifikasi teks Harga (berisi "Rp")
+                while (currentNode) {
+                    if (currentNode.nodeValue && /Rp\s*[\d.,]+/.test(currentNode.nodeValue)) {
+                        priceElements.push(currentNode.parentElement);
+                    }
+                    currentNode = textNodes.nextNode();
+                }
+
+                const processedContainers = new Set();
+
+                // 2. Analisis pembungkusnya (Product Card Container)
+                for (const priceEl of priceElements) {
+                    if (!priceEl) continue;
+
+                    let container = priceEl.parentElement;
+                    for (let i = 0; i < 4; i++) {
+                        if (container && container.parentElement && container.tagName !== 'BODY') {
+                            container = container.parentElement;
+                        }
+                    }
+
+                    if (!container || processedContainers.has(container)) continue;
+                    processedContainers.add(container);
+
+                    const priceText = priceEl.textContent || '0';
+                    const priceNumber = parseInt(priceText.replace(/[^0-9]/g, ''), 10);
+                    if (isNaN(priceNumber) || priceNumber === 0) continue;
+
+                    // Cari link
+                    const anchor = container.querySelector('a') as HTMLAnchorElement;
+                    const url = anchor ? anchor.href : '';
+                    if (!url || url.includes('javascript:')) continue;
+
+                    // Cari gambar
+                    const img = container.querySelector('img') as HTMLImageElement;
+                    const image = img ? (img.src || img.getAttribute('data-src') || '') : '';
+
+                    // Cari judul produk
+                    let title = '';
+                    const allSpans = container.querySelectorAll('span, div, h2, h3');
+                    allSpans.forEach(el => {
+                        const text = el.textContent?.trim() || '';
+                        if (text.length > 15 && text.length > title.length && !text.includes('Rp')) {
+                            title = text;
+                        }
+                    });
+
+                    if (title && priceNumber > 0) {
+                        extracted.push({ title, price: priceNumber, platform: plat, url, image });
+                    }
+                }
+                return extracted;
+            }, platform);
+
+            // Filter data kosong dan ambil 10 teratas per platform agar ringan
+            return scrapedResults.filter(r => r.title !== '').slice(0, 10);
+
         } catch (error) {
-            console.error(`Error scraping ${platform}:`, error);
+            console.warn(`[Pipeline] Gagal merayapi ${platform} (Timeout / Proteksi Bot)`);
             return []; // Fail-safe
         } finally {
-            // 🛡️ ZOMBIE TAB FIX: Bereskan Tab Chromium terlepas ia sukses maupun timeout
             if (page && typeof page.isClosed === 'function' && !page.isClosed()) {
                 await page.close().catch(() => { });
-            } else if (page && typeof page.close === 'function') {
-                // Algorithmic mock fallback
-                await page.close().catch(() => { });
             }
-
-            // 🔓 Release lock. Wakes up the next request waiting in `acquireConcurrencySlot`
             releaseConcurrencySlot();
         }
     };
 
     try {
-        // Concurrent mapped execution (bounded by the absolute Semaphore limit under the hood)
         const mappedPromises = targetPlatforms.map(p => scrapePlatform(p));
         const batchResults = await Promise.all(mappedPromises);
         batchResults.forEach(r => results.push(...r));
@@ -228,7 +251,5 @@ export async function runScrapingPipeline(
         console.error("Pipeline Engine Critical Exception:", fatals);
     }
 
-    // Notice we DO NOT close the browser here anymore.
-    // It stays alive globally for future connections to avoid startup latency!
     return results;
 }
