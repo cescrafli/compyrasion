@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import NodeCache from 'node-cache';
-import { runScrapingPipeline } from './lib/scraper-engine';
+import { runScrapingPipeline, ScrapedProduct } from './lib/scraper-engine';
 import { trainAndPredictIntent, clusterProductsML, ProductCluster } from './lib/ml-engine';
 import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 
@@ -47,14 +47,27 @@ export async function GET(request: Request) {
     const intent = trainAndPredictIntent(q);
 
     let rawProducts: any[] = [];
-    let pipelineError = undefined;
+    let pipelineError: string | undefined = undefined;
 
-    // 2. Scraping Pool Handler (Soft-fail wrapper to preserve partial API functioning)
+    // 2. TIMEOUT PROTECTION OOM QUEUE
     try {
-       rawProducts = await runScrapingPipeline(intent.clean_keyword);
+       // Graceful 25-Second API Timeout Promise
+       const TIMEOUT_MS = 25000;
+       const timeoutPromise = new Promise<ScrapedProduct[]>((_, reject) => {
+           setTimeout(() => reject(new Error("Global Scraper Queue Timeout: Aborted after 25s to save API response.")), TIMEOUT_MS);
+       });
+
+       // 🛡️ Promise.race forces the scraping to yield if the server queue is backed up
+       // This prevents Vercel/Node edge functions from terminating entirely.
+       rawProducts = await Promise.race([
+           runScrapingPipeline(intent.clean_keyword),
+           timeoutPromise
+       ]);
     } catch (scrapeErr: any) {
-       console.error("Orchestrator: Scraper Pipeline Fault", scrapeErr);
-       pipelineError = "Partial data fault during platform requests. Pipeline continues.";
+       console.warn("Orchestrator: Scraper Pipeline Fault -", scrapeErr.message);
+       // Catch the timeout gracefully, proceeding down to the IQR & NLP mapping
+       // using whatever data was partially secured, or zero data.
+       pipelineError = scrapeErr.message || "Partial data fault during platform requests. Pipeline continues.";
     }
 
     // 3. IQR Mathematics Engine

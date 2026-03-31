@@ -79,7 +79,9 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
   // Clean text and Map Prices globally first to save CPU later
   const cleanedProducts = products.map(p => {
       const cleanTitle = p.title.toLowerCase()
+          // Drop noisy logic loops
           .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, '')
+          // PRESERVE ALPHANUMERIC: ^a-z0-9 explicitly stops mathematical numbers from shedding
           .replace(/[^a-z0-9\s]/g, ' ')
           .replace(/\s+/g, ' ')
           .trim();
@@ -93,7 +95,9 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
 
   const clusters: ProductCluster[] = [];
   const processedIndices = new Set<number>();
-  const COSINE_THRESHOLD = 0.65; // User Defined Math Boundary
+  
+  // 🛡️ Raised stricter Cosine Threshold to match model numbers accurately (e.g. 13 vs 14 needs less noise allowance)
+  const COSINE_THRESHOLD = 0.75; 
 
   for (let i = 0; i < cleanedProducts.length; i++) {
     if (processedIndices.has(i)) continue;
@@ -113,6 +117,8 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
     // Get Vector formulation for Document I
     const termsI: Record<string, number> = {};
     tfidf.listTerms(i).forEach(item => {
+        // Natural's TfIdf will internally tokenize correctly. 
+        // We explicitly keep alphanumeric patterns from the text above.
         termsI[item.term] = item.tfidf;
     });
 
