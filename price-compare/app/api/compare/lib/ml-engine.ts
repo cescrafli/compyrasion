@@ -109,6 +109,13 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
   // 🛡️ Raised stricter Cosine Threshold to match model numbers accurately (e.g. 13 vs 14 needs less noise allowance)
   const COSINE_THRESHOLD = 0.75; 
 
+  // 🛡️ CPU BOTTLENECK FIX: Pre-compute TF-IDF vectors in O(N) to prevent O(N^2) recalculations
+  const documentVectors = cleanedProducts.map((_, idx) => {
+      const terms: Record<string, number> = {};
+      tfidf.listTerms(idx).forEach(item => { terms[item.term] = item.tfidf; });
+      return terms;
+  });
+
   for (let i = 0; i < cleanedProducts.length; i++) {
     if (processedIndices.has(i)) continue;
 
@@ -124,20 +131,14 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
     
     processedIndices.add(i);
 
-    // Get Vector formulation for Document I
-    const termsI: Record<string, number> = {};
-    tfidf.listTerms(i).forEach(item => {
-        termsI[item.term] = item.tfidf;
-    });
+    // Constant lookup O(1) instead of listTerms recalculation
+    const termsI = documentVectors[i];
 
     for (let j = i + 1; j < cleanedProducts.length; j++) {
       if (processedIndices.has(j)) continue;
 
-      // Get Vector formulation for Document J
-      const termsJ: Record<string, number> = {};
-      tfidf.listTerms(j).forEach(item => {
-          termsJ[item.term] = item.tfidf;
-      });
+      // Constant lookup O(1)
+      const termsJ = documentVectors[j];
 
       // Pure Vector Dot-Product (Cosine Similarity)
       const similarity = calculateCosineSimilarity(termsI, termsJ);

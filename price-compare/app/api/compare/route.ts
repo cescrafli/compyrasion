@@ -103,7 +103,10 @@ export async function GET(request: Request) {
       ...(pipelineError && { errors: pipelineError })
     };
 
-    cache.set(cacheKey, responsePayload);
+    // 🛡️ CACHE POISONING FIX: Only cache if no scraping pipeline timeout/errors occurred
+    if (!pipelineError) {
+        cache.set(cacheKey, responsePayload);
+    }
 
     return NextResponse.json({ source: 'live', data: responsePayload });
   } catch (fatals: any) {
