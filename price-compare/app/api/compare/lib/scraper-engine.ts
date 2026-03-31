@@ -31,26 +31,33 @@ const getBrowserInstance = async () => {
     if (!globalBrowserInstance) {
         if (!browserLaunchPromise) {
             browserLaunchPromise = (async () => {
-                // Uncomment below for actual puppeteer launch
-                /*
-                globalBrowserInstance = await puppeteer.launch({ 
-                    headless: true,
-                    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
-                });
-                */
-                
-                // Dummy mock for algorithmic demonstration
-                globalBrowserInstance = {
-                   newPage: async () => ({
-                       goto: async () => {},
-                       close: async () => {}
-                   }),
-                   close: async () => {
-                       globalBrowserInstance = null;
-                       browserLaunchPromise = null;
-                   }
-                };
-                return globalBrowserInstance;
+                try {
+                    // Uncomment below for actual puppeteer launch
+                    /*
+                    globalBrowserInstance = await puppeteer.launch({ 
+                        headless: true,
+                        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
+                    });
+                    */
+                    
+                    // Dummy mock for algorithmic demonstration
+                    globalBrowserInstance = {
+                       newPage: async () => ({
+                           goto: async () => {},
+                           close: async () => {}
+                       }),
+                       close: async () => {
+                           globalBrowserInstance = null;
+                           browserLaunchPromise = null;
+                       }
+                    };
+                    return globalBrowserInstance;
+                } catch (initError) {
+                    console.error("CRITICAL: Failed to initialize Global Browser, releasing lock.", initError);
+                    globalBrowserInstance = null;
+                    browserLaunchPromise = null;
+                    throw initError;
+                }
             })();
         }
         await browserLaunchPromise;
@@ -145,12 +152,12 @@ export async function runScrapingPipeline(
       /*
       // Example real code using the shared instance
       const page = await browser.newPage();
-      await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
       // TODO: Real CSS Selectors Here
       await page.close(); // Clean up tab
       */
 
-      // Simulated Extraction Delay
+      // Simulated Extraction Delay (Strictly within Orchestrator bounds)
       await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 400));
       
       const mockedResults: ScrapedProduct[] = [];
