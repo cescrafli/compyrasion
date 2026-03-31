@@ -49,8 +49,21 @@ const getBrowserInstance = async () => {
                         close: async () => {
                             globalBrowserInstance = null;
                             browserLaunchPromise = null;
-                        }
+                        },
+                        // Mock the 'on' event emitter
+                        on: (event: string, callback: any) => { }
                     };
+
+                    // 🛡️ THE PHANTOM BROWSER FIX: 
+                    // Dengarkan jika browser mati dibunuh OS atau crash
+                    if (globalBrowserInstance && typeof globalBrowserInstance.on === 'function') {
+                        globalBrowserInstance.on('disconnected', () => {
+                            console.warn("⚠️ ALARM: Browser terputus atau dibunuh OS. Mereset Singleton Lock...");
+                            globalBrowserInstance = null;
+                            browserLaunchPromise = null;
+                        });
+                    }
+
                     return globalBrowserInstance;
                 } catch (initError) {
                     console.error("CRITICAL: Failed to initialize Global Browser, releasing lock.", initError);
