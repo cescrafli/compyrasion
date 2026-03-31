@@ -166,6 +166,20 @@ export async function runScrapingPipeline(
         try {
             // Example real code using the shared instance
             page = await browser.newPage();
+
+            // 🛡️ BATCH NETWORK INTERCEPTOR: Block heavy resources (Images, CSS, Fonts) for extreme speed
+            if (page && typeof page.setRequestInterception === 'function') {
+                await page.setRequestInterception(true);
+                page.on('request', (req: any) => {
+                    const resourceType = typeof req.resourceType === 'function' ? req.resourceType() : '';
+                    if (['image', 'stylesheet', 'font', 'media', 'imageset'].includes(resourceType)) {
+                        req.abort();
+                    } else if (typeof req.continue === 'function') {
+                        req.continue();
+                    }
+                });
+            }
+
             await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
             // TODO: Real CSS Selectors Here
 
