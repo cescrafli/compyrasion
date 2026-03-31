@@ -56,8 +56,8 @@ export function filterAnomalies(rawProducts: any[]) {
     avgPrice = cleanProducts.length > 0 ? sum / cleanProducts.length : 0;
     
     const validPrices = cleanProducts.map(p => p.parsedPrice);
-    const lowest = validPrices.length > 0 ? Math.min(...validPrices) : 0;
-    const highest = validPrices.length > 0 ? Math.max(...validPrices) : 0;
+    const lowest = validPrices.length > 0 ? validPrices.reduce((min, p) => p < min ? p : min, validPrices[0]) : 0;
+    const highest = validPrices.length > 0 ? validPrices.reduce((max, p) => p > max ? p : max, validPrices[0]) : 0;
 
     return {
         cleanProducts,

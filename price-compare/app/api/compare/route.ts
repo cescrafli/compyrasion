@@ -103,8 +103,8 @@ export async function GET(request: Request) {
       ...(pipelineError && { errors: pipelineError })
     };
 
-    // 🛡️ CACHE POISONING FIX: Only cache if no scraping pipeline timeout/errors occurred
-    if (!pipelineError) {
+    // 🛡️ CACHE POISONING FIX: Only cache if no errors occurred AND we successfully retrieved data
+    if (!pipelineError && rawProducts.length > 0) {
         cache.set(cacheKey, responsePayload);
     }
 
