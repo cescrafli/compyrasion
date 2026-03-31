@@ -161,12 +161,13 @@ export async function runScrapingPipeline(
             return [];
         }
 
+        let page: any = null;
+
         try {
             // Example real code using the shared instance
-            const page = await browser.newPage();
+            page = await browser.newPage();
             await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
             // TODO: Real CSS Selectors Here
-            await page.close(); // Clean up tab
 
             // Simulated Extraction Delay (Strictly within Orchestrator bounds)
             await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 400));
@@ -191,6 +192,14 @@ export async function runScrapingPipeline(
             console.error(`Error scraping ${platform}:`, error);
             return []; // Fail-safe
         } finally {
+            // 🛡️ ZOMBIE TAB FIX: Bereskan Tab Chromium terlepas ia sukses maupun timeout
+            if (page && typeof page.isClosed === 'function' && !page.isClosed()) {
+                await page.close().catch(() => { });
+            } else if (page && typeof page.close === 'function') {
+                // Algorithmic mock fallback
+                await page.close().catch(() => { });
+            }
+
             // 🔓 Release lock. Wakes up the next request waiting in `acquireConcurrencySlot`
             releaseConcurrencySlot();
         }
