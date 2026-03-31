@@ -5,20 +5,20 @@ import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 puppeteer.use(StealthPlugin());
 
 const PLATFORMS = [
-  "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak", 
-  "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
+    "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak",
+    "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
 ];
 
 export interface ScrapedProduct {
-  title: string;
-  price: number;
-  platform: string;
-  url: string;
-  image: string;
+    title: string;
+    price: number;
+    platform: string;
+    url: string;
+    image: string;
 }
 
 export interface AbortState {
-  aborted: boolean;
+    aborted: boolean;
 }
 
 // =========================================
@@ -39,17 +39,17 @@ const getBrowserInstance = async () => {
                         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
                     });
                     */
-                    
+
                     // Dummy mock for algorithmic demonstration
                     globalBrowserInstance = {
-                       newPage: async () => ({
-                           goto: async () => {},
-                           close: async () => {}
-                       }),
-                       close: async () => {
-                           globalBrowserInstance = null;
-                           browserLaunchPromise = null;
-                       }
+                        newPage: async () => ({
+                            goto: async () => { },
+                            close: async () => { }
+                        }),
+                        close: async () => {
+                            globalBrowserInstance = null;
+                            browserLaunchPromise = null;
+                        }
                     };
                     return globalBrowserInstance;
                 } catch (initError) {
@@ -83,8 +83,8 @@ const killZombieProcesses = async () => {
 // Node.js process hooks
 process.on('SIGINT', async () => { await killZombieProcesses(); process.exit(); });
 process.on('SIGTERM', async () => { await killZombieProcesses(); process.exit(); });
-process.on('exit', () => { 
-    if (globalBrowserInstance) globalBrowserInstance.close().catch(() => {});
+process.on('exit', () => {
+    if (globalBrowserInstance) globalBrowserInstance.close().catch(() => { });
 });
 
 // =========================================
@@ -123,78 +123,76 @@ const releaseConcurrencySlot = () => {
 // MAIN PIPELINE
 // =========================================
 export async function runScrapingPipeline(
-  cleanKeyword: string, 
-  targetPlatforms: string[] = PLATFORMS,
-  abortState?: AbortState
+    cleanKeyword: string,
+    targetPlatforms: string[] = PLATFORMS,
+    abortState?: AbortState
 ): Promise<ScrapedProduct[]> {
-  const results: ScrapedProduct[] = [];
-  
-  // Lazily ignite or pull the global Chrome instance
-  const browser = await getBrowserInstance();
+    const results: ScrapedProduct[] = [];
 
-  const scrapePlatform = async (platform: string): Promise<ScrapedProduct[]> => {
-    
-    // 🛡️ GHOST PREVENTION: Don't even enter the queue if the orchestrator hung up
-    if (abortState?.aborted) return [];
+    // Lazily ignite or pull the global Chrome instance
+    const browser = await getBrowserInstance();
 
-    // 🛡️ OOM PROTECTION: Block execution thread here until a slot opens globally
-    await acquireConcurrencySlot();
+    const scrapePlatform = async (platform: string): Promise<ScrapedProduct[]> => {
 
-    // 🛡️ CANCELLATION AWARENESS: Fail immediately if the Orchestrator already gave up
-    // This stops background promises from continuing their extraction loops uselessly
-    if (abortState?.aborted) {
-        console.warn(`[ABORTED] Skipping scrape for ${platform} - Orchestrator closed thread.`);
-        releaseConcurrencySlot();
-        return [];
-    }
+        // 🛡️ GHOST PREVENTION: Don't even enter the queue if the orchestrator hung up
+        if (abortState?.aborted) return [];
+
+        // 🛡️ OOM PROTECTION: Block execution thread here until a slot opens globally
+        await acquireConcurrencySlot();
+
+        // 🛡️ CANCELLATION AWARENESS: Fail immediately if the Orchestrator already gave up
+        // This stops background promises from continuing their extraction loops uselessly
+        if (abortState?.aborted) {
+            console.warn(`[ABORTED] Skipping scrape for ${platform} - Orchestrator closed thread.`);
+            releaseConcurrencySlot();
+            return [];
+        }
+
+        try {
+            // Example real code using the shared instance
+            const page = await browser.newPage();
+            await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
+            // TODO: Real CSS Selectors Here
+            await page.close(); // Clean up tab
+
+            // Simulated Extraction Delay (Strictly within Orchestrator bounds)
+            await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 400));
+
+            const mockedResults: ScrapedProduct[] = [];
+            const numItems = Math.floor(Math.random() * 5) + 2;
+
+            for (let i = 0; i < numItems; i++) {
+                const basePrice = 1000000 + (Math.random() * 2000000);
+                const priceJitter = basePrice + (Math.random() * 500000 - 250000);
+
+                mockedResults.push({
+                    title: `${cleanKeyword} ${["Pro", "Max", "Original", "Promo", "Baru", "13", "128gb", "Ram 8GB"][Math.floor(Math.random() * 8)]} di ${platform}`,
+                    price: Math.round(priceJitter / 1000) * 1000,
+                    platform: platform,
+                    url: `https://www.${platform.toLowerCase()}.com/product/${Math.floor(Math.random() * 100000)}`,
+                    image: `https://images.${platform.toLowerCase()}.com/item_${Math.floor(Math.random() * 100)}.jpg`
+                });
+            }
+            return mockedResults;
+        } catch (error) {
+            console.error(`Error scraping ${platform}:`, error);
+            return []; // Fail-safe
+        } finally {
+            // 🔓 Release lock. Wakes up the next request waiting in `acquireConcurrencySlot`
+            releaseConcurrencySlot();
+        }
+    };
 
     try {
-      /*
-      // Example real code using the shared instance
-      const page = await browser.newPage();
-      await page.goto(`https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      // TODO: Real CSS Selectors Here
-      await page.close(); // Clean up tab
-      */
-
-      // Simulated Extraction Delay (Strictly within Orchestrator bounds)
-      await new Promise(resolve => setTimeout(resolve, Math.random() * 800 + 400));
-      
-      const mockedResults: ScrapedProduct[] = [];
-      const numItems = Math.floor(Math.random() * 5) + 2;
-      
-      for(let i = 0; i < numItems; i++) {
-         const basePrice = 1000000 + (Math.random() * 2000000); 
-         const priceJitter = basePrice + (Math.random() * 500000 - 250000);
-
-         mockedResults.push({
-            title: `${cleanKeyword} ${["Pro", "Max", "Original", "Promo", "Baru", "13", "128gb", "Ram 8GB"][Math.floor(Math.random() * 8)]} di ${platform}`,
-            price: Math.round(priceJitter / 1000) * 1000,
-            platform: platform,
-            url: `https://www.${platform.toLowerCase()}.com/product/${Math.floor(Math.random()*100000)}`,
-            image: `https://images.${platform.toLowerCase()}.com/item_${Math.floor(Math.random()*100)}.jpg`
-         });
-      }
-      return mockedResults;
-    } catch (error) {
-      console.error(`Error scraping ${platform}:`, error);
-      return []; // Fail-safe
-    } finally {
-      // 🔓 Release lock. Wakes up the next request waiting in `acquireConcurrencySlot`
-      releaseConcurrencySlot();
+        // Concurrent mapped execution (bounded by the absolute Semaphore limit under the hood)
+        const mappedPromises = targetPlatforms.map(p => scrapePlatform(p));
+        const batchResults = await Promise.all(mappedPromises);
+        batchResults.forEach(r => results.push(...r));
+    } catch (fatals) {
+        console.error("Pipeline Engine Critical Exception:", fatals);
     }
-  };
 
-  try {
-     // Concurrent mapped execution (bounded by the absolute Semaphore limit under the hood)
-     const mappedPromises = targetPlatforms.map(p => scrapePlatform(p));
-     const batchResults = await Promise.all(mappedPromises);
-     batchResults.forEach(r => results.push(...r));
-  } catch (fatals) {
-     console.error("Pipeline Engine Critical Exception:", fatals);
-  }
-
-  // Notice we DO NOT close the browser here anymore.
-  // It stays alive globally for future connections to avoid startup latency!
-  return results;
+    // Notice we DO NOT close the browser here anymore.
+    // It stays alive globally for future connections to avoid startup latency!
+    return results;
 }
