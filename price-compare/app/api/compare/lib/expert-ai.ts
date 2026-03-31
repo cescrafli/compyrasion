@@ -9,19 +9,28 @@ export function filterAnomalies(rawProducts: any[]) {
         };
     }
 
-    const prices = rawProducts.map(p => typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10))
-                              .filter(p => !isNaN(p));
+    // Single pre-parse array to save loops
+    const parsedData = rawProducts.map(p => {
+        const pPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
+        return { ...p, parsedPrice: isNaN(pPrice) ? 0 : pPrice };
+    }).filter(p => p.parsedPrice > 0);
+
+    const prices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
+    let avgPrice = 0;
     
-    if (prices.length === 0) {
-        return { 
-           cleanProducts: [], 
-           marketAnalytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, items_excluded_count: rawProducts.length } 
+    // EDGE CASE: Arrays < 4 cannot statistically support IQR properly
+    if (prices.length < 4) {
+        if (prices.length > 0) avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
+        return {
+            cleanProducts: parsedData,
+            marketAnalytics: {
+               average_price: Math.round(avgPrice),
+               market_range: { lowest: prices[0] || 0, highest: prices[prices.length - 1] || 0 },
+               items_excluded_count: 0 // Bypassed
+            }
         };
     }
 
-    // Sort prices for IQR
-    prices.sort((a, b) => a - b);
-    
     const q1Index = Math.floor(prices.length * 0.25);
     const q3Index = Math.floor(prices.length * 0.75);
     const q1 = prices[q1Index];
@@ -35,19 +44,18 @@ export function filterAnomalies(rawProducts: any[]) {
     let excludedCount = 0;
     let sum = 0;
 
-    for (const product of rawProducts) {
-        const pPrice = typeof product.price === 'number' ? product.price : parseInt(String(product.price).replace(/[^0-9]/g, ''), 10);
-        if (pPrice >= lowerBound && pPrice <= upperBound) {
+    for (const product of parsedData) {
+        if (product.parsedPrice >= lowerBound && product.parsedPrice <= upperBound) {
             cleanProducts.push(product);
-            sum += pPrice;
+            sum += product.parsedPrice;
         } else {
             excludedCount++;
         }
     }
 
-    const avgPrice = cleanProducts.length > 0 ? sum / cleanProducts.length : 0;
+    avgPrice = cleanProducts.length > 0 ? sum / cleanProducts.length : 0;
     
-    const validPrices = cleanProducts.map(p => typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10));
+    const validPrices = cleanProducts.map(p => p.parsedPrice);
     const lowest = validPrices.length > 0 ? Math.min(...validPrices) : 0;
     const highest = validPrices.length > 0 ? Math.max(...validPrices) : 0;
 
@@ -64,44 +72,44 @@ export function filterAnomalies(rawProducts: any[]) {
 // 2. generateDecisionTreeSummary
 export function generateDecisionTreeSummary(analytics: any, clusters: ProductCluster[]) {
     if (clusters.length === 0) {
-        return { summary: "Sistem Pakar: Tidak ada data valid setelah penyaringan outlier IQR.", buy_recommendation: "Wait" };
+        return { summary: "Sistem Pakar: Tidak ada data valid yang memenuhi bobot kluster atau anomali IQR.", buy_recommendation: "Wait" };
     }
 
-    // Decision Tree logic
-    const topCluster = clusters[0];
-    const bestPrice = topCluster.best_price;
-    const avgPrice = analytics.average_price;
-    const platform = topCluster.cheapest_platform;
+    // Select the cluster with the MOST MARKETPLACE OFFERS
+    const mostPopularCluster = clusters.reduce((prev, current) => {
+        return (prev.marketplace_offers.length > current.marketplace_offers.length) ? prev : current;
+    });
 
-    // Node 1: Is the platform significantly cheaper?
+    const bestPrice = mostPopularCluster.best_price;
+    const avgPrice = analytics.average_price;
+    const platform = mostPopularCluster.cheapest_platform;
+
+    // Node 1: Evaluation
     if (avgPrice > 0) {
         const discountRatio = (avgPrice - bestPrice) / avgPrice;
         
         if (discountRatio > 0.10) {
-            // Leaf 1: > 10% cheaper
             const percentageRounded = Math.round(discountRatio * 100);
             return {
-                summary: `Evaluasi Sistem Pakar: Ditemukan kejanggalan positif di platform ${platform}. Harga barang ini ${percentageRounded}% lebih murah dari nilai pasar sejati (berdasarkan IQR). Secara algoritmik, ini adalah titik beli optimal.`,
+                summary: `Evaluasi Pakar: Temuan kejanggalan positif di ${platform}. Item '${mostPopularCluster.canonical_name}' terukur ${percentageRounded}% lebih murah dari ekuilibrium IQR. Titik beli sangat optimal.`,
                 buy_recommendation: "Buy Now"
             };
         } else if (discountRatio > 0) {
-             // Leaf 2: < 10% cheaper
              const percentageRounded = Math.round(discountRatio * 100);
              return {
-                 summary: `Evaluasi Sistem Pakar: Harga termurah saat ini ada di ${platform} (${percentageRounded}% di bawah rata-rata tren wajar). Anda bisa membelinya sekarang, atau menunggu momentum diskon akhir bulan.`,
+                 summary: `Evaluasi Pakar: Temuan harga normal di ${platform} (${percentageRounded}% di bawah paritas wajar). Eksekusi pembelian secara proporsional.`,
                  buy_recommendation: "Stable / Optional buy"
              };
         } else {
-             // Leaf 3: Prices are higher/equal to average
              return {
-                 summary: `Evaluasi Sistem Pakar: Harga terendah di ${platform} terpantau sejajar atau lebih tinggi dari rata-rata batas wajar pasar lokal. Algoritma menyarankan Anda untuk Hold uang Anda sampai ada fluktuasi penurunan.`,
+                 summary: `Evaluasi Pakar: Rentang terendah di ${platform} menembus batas ekuilibrium wajar pasar (Inflasi temporal). Dimohon untuk menahan (Hold) nilai transaksi Anda hingga depresiasi platform terjadi.`,
                  buy_recommendation: "Wait"
              };
         }
     }
 
     return {
-        summary: "Evaluasi Sistem Pakar: Data pasar terlampau sedikit untuk menjalankan pohon keputusan finansial. Harap tunggu atau periksa manual.",
+        summary: "Evaluasi Pakar: Dataset terlampau mikro untuk menopang pohon prediksi. Verifikasi manual disarankan.",
         buy_recommendation: "Wait"
     };
 }

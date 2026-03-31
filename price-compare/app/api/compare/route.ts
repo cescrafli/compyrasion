@@ -1,11 +1,32 @@
 import { NextResponse } from 'next/server';
 import NodeCache from 'node-cache';
 import { runScrapingPipeline } from './lib/scraper-engine';
-import { trainAndPredictIntent, clusterProductsML } from './lib/ml-engine';
+import { trainAndPredictIntent, clusterProductsML, ProductCluster } from './lib/ml-engine';
 import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 
-// 1 Hour TTL Cache
+// Memory Caching
 const cache = new NodeCache({ stdTTL: 3600 });
+
+// Payload Interface enforcing type safety across the Orchestrator
+interface ComparisonResponse {
+  query_intent: {
+      category: string;
+      clean_keyword: string;
+      budget: number | null;
+      type: string;
+  };
+  market_stats: {
+      average_price: number;
+      market_range: { lowest: number; highest: number; };
+      items_excluded_count: number;
+  };
+  smart_summary: {
+      summary: string;
+      buy_recommendation: string;
+  };
+  product_clusters: ProductCluster[];
+  errors?: string;
+}
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -15,43 +36,50 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing 'q' parameter." }, { status: 400 });
   }
 
-  // 1. Check node-cache
   const cacheKey = q.toLowerCase().trim();
-  const cachedResponse = cache.get(cacheKey);
+  const cachedResponse = cache.get<ComparisonResponse>(cacheKey);
   if (cachedResponse) {
     return NextResponse.json({ source: 'cache', data: cachedResponse });
   }
 
   try {
-    // 2. Call mlEngine.trainAndPredictIntent(query) -> gets predicted category & cleaned intent
+    // 1. Natural Language Intent Routing (Offline NB Classifier)
     const intent = trainAndPredictIntent(q);
 
-    // 3. Call scraperEngine.runScrapingPipeline(intent.clean_keyword) -> gets raw data
-    const rawProducts = await runScrapingPipeline(intent.clean_keyword);
+    let rawProducts: any[] = [];
+    let pipelineError = undefined;
 
-    // 4. Call expertAi.filterAnomalies(rawData) -> removes outliers via IQR
+    // 2. Scraping Pool Handler (Soft-fail wrapper to preserve partial API functioning)
+    try {
+       rawProducts = await runScrapingPipeline(intent.clean_keyword);
+    } catch (scrapeErr: any) {
+       console.error("Orchestrator: Scraper Pipeline Fault", scrapeErr);
+       pipelineError = "Partial data fault during platform requests. Pipeline continues.";
+    }
+
+    // 3. IQR Mathematics Engine
     const anomalyFiltered = filterAnomalies(rawProducts);
 
-    // 5. Call mlEngine.clusterProductsML(cleanData) -> groups products via TF-IDF machine learning
+    // 4. ML Semantic TF-IDF + Cosine Clustering
     const clusters = clusterProductsML(anomalyFiltered.cleanProducts);
 
-    // 6. Call expertAi.generateDecisionTreeSummary(...) -> generates final AI text logic
+    // 5. Intelligent Decision Nodes
     const smartSummary = generateDecisionTreeSummary(anomalyFiltered.marketAnalytics, clusters);
 
-    // 7. Construct ComparisonResponse
-    const responsePayload = {
+    // 6. Safe Payload Construction
+    const responsePayload: ComparisonResponse = {
       query_intent: intent,
       market_stats: anomalyFiltered.marketAnalytics,
       smart_summary: smartSummary,
-      product_clusters: clusters
+      product_clusters: clusters,
+      ...(pipelineError && { errors: pipelineError })
     };
 
-    // 8. Cache and return
     cache.set(cacheKey, responsePayload);
 
     return NextResponse.json({ source: 'live', data: responsePayload });
-  } catch (err: any) {
-    console.error("API Error:", err);
-    return NextResponse.json({ error: "Internal Server Error", details: err.message }, { status: 500 });
+  } catch (fatals: any) {
+    console.error("API Kernel Error:", fatals);
+    return NextResponse.json({ error: "Fatal Processing Fault", details: fatals.message }, { status: 500 });
   }
 }

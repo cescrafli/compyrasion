@@ -7,29 +7,46 @@ export interface ProductCluster {
   marketplace_offers: any[];
 }
 
+// ==========================================
+// GLOBALS: Instantiating and Training Singleton Classifier
+// ==========================================
+const classifier = new natural.BayesClassifier();
+
+// Perform Memory-bound Singleton Training
+classifier.addDocument("sepatu lari nike adidas puma kets", "Fashion");
+classifier.addDocument("baju celana kaos kemeja jaket topi", "Fashion");
+classifier.addDocument("laptop gaming asus rog lenovo legion acer", "Computing");
+classifier.addDocument("pc rakitan vga rtx nvidia radeon cpu prosesor monitor", "Computing");
+classifier.addDocument("iphone 13 pro max samsung galaxy xiaomi redmi oppo", "Mobile Devices");
+classifier.addDocument("charger case kabel data powerbank handphone hp tablet", "Mobile Devices");
+classifier.addDocument("kulkas mesin cuci tv televisi ac kipas dispenser", "Home Appliances");
+classifier.train();
+
+// Helper: Vector Dot Product Cosine Similarity
+function calculateCosineSimilarity(vecA: Record<string, number>, vecB: Record<string, number>): number {
+    let dotProduct = 0;
+    let magA = 0;
+    let magB = 0;
+    
+    for (const term in vecA) {
+        if (vecB[term]) {
+            dotProduct += vecA[term] * vecB[term];
+        }
+        magA += vecA[term] ** 2;
+    }
+    for (const term in vecB) {
+        magB += vecB[term] ** 2;
+    }
+    
+    if (magA === 0 || magB === 0) return 0;
+    return dotProduct / (Math.sqrt(magA) * Math.sqrt(magB));
+}
+
 // 1. trainAndPredictIntent
 export function trainAndPredictIntent(query: string) {
-  // Instantiate local in-memory classifier
-  const classifier = new natural.BayesClassifier();
-
-  // Train with minimal dummy datasets
-  classifier.addDocument("sepatu lari nike adidas puma kets", "Fashion");
-  classifier.addDocument("baju celana kaos kemeja jaket topi", "Fashion");
-  
-  classifier.addDocument("laptop gaming asus rog lenovo legion acer", "Computing");
-  classifier.addDocument("pc rakitan vga rtx nvidia radeon cpu prosesor monitor", "Computing");
-  
-  classifier.addDocument("iphone 13 pro max samsung galaxy xiaomi redmi oppo", "Mobile Devices");
-  classifier.addDocument("charger case kabel data powerbank handphone hp tablet", "Mobile Devices");
-
-  classifier.addDocument("kulkas mesin cuci tv televisi ac kipas dispenser", "Home Appliances");
-
-  // Train the model synchronously
-  classifier.train();
-
   const qLower = query.toLowerCase();
   
-  // Predict category
+  // Predict category synchronously via Global Classifier
   const predictedCategory = classifier.classify(qLower);
 
   // Extract budget using pure algorithmic RegExp
@@ -59,62 +76,64 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
   const TfIdf = natural.TfIdf;
   const tfidf = new TfIdf();
   
-  // Add all products to the TF-IDF corpus
-  products.forEach(p => {
-    // Basic text cleaner
-    const cleanTitle = p.title.toLowerCase()
-      .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, '')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+  // Clean text and Map Prices globally first to save CPU later
+  const cleanedProducts = products.map(p => {
+      const cleanTitle = p.title.toLowerCase()
+          .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, '')
+          .replace(/[^a-z0-9\s]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
       
-    tfidf.addDocument(cleanTitle);
+      const parsedPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
+      
+      tfidf.addDocument(cleanTitle);
+      
+      return { ...p, cleanTitle, parsedPrice: isNaN(parsedPrice) ? 0 : parsedPrice };
   });
 
   const clusters: ProductCluster[] = [];
   const processedIndices = new Set<number>();
+  const COSINE_THRESHOLD = 0.65; // User Defined Math Boundary
 
-  for (let i = 0; i < products.length; i++) {
+  for (let i = 0; i < cleanedProducts.length; i++) {
     if (processedIndices.has(i)) continue;
 
-    const baseProduct = products[i];
-    const basePrice = typeof baseProduct.price === 'number' ? baseProduct.price : parseInt(String(baseProduct.price).replace(/[^0-9]/g, ''), 10);
+    const baseProduct = cleanedProducts[i];
     
     // Create new cluster centroid
     const currentCluster: ProductCluster = {
-      canonical_name: baseProduct.title,
-      best_price: basePrice,
+      canonical_name: baseProduct.cleanTitle || baseProduct.title,
+      best_price: baseProduct.parsedPrice,
       cheapest_platform: baseProduct.platform,
       marketplace_offers: [{ platform: baseProduct.platform, params: baseProduct }]
     };
     
     processedIndices.add(i);
 
-    // Measure TF-IDF semantic link
-    const tokenizer = new natural.WordTokenizer();
-    const baseTerms = tokenizer.tokenize(baseProduct.title.toLowerCase()) || [];
-    
-    for (let j = i + 1; j < products.length; j++) {
+    // Get Vector formulation for Document I
+    const termsI: Record<string, number> = {};
+    tfidf.listTerms(i).forEach(item => {
+        termsI[item.term] = item.tfidf;
+    });
+
+    for (let j = i + 1; j < cleanedProducts.length; j++) {
       if (processedIndices.has(j)) continue;
 
-      let score = 0;
-      // Calculate how mathematically similar Document J is to Document I based on TF-IDF
-      tfidf.tfidfs(baseTerms, (docIndex, measure) => {
-          if (docIndex === j) {
-             score += measure;
-          }
+      // Get Vector formulation for Document J
+      const termsJ: Record<string, number> = {};
+      tfidf.listTerms(j).forEach(item => {
+          termsJ[item.term] = item.tfidf;
       });
 
-      // Tuning for TF-IDF correlation. Very basic heuristic threshold here.
-      const SIMILARITY_THRESHOLD = 1.0; 
+      // Pure Vector Dot-Product (Cosine Similarity)
+      const similarity = calculateCosineSimilarity(termsI, termsJ);
       
-      if (score > SIMILARITY_THRESHOLD) {
-        const jProduct = products[j];
-        const jPrice = typeof jProduct.price === 'number' ? jProduct.price : parseInt(String(jProduct.price).replace(/[^0-9]/g, ''), 10);
+      if (similarity >= COSINE_THRESHOLD) {
+        const jProduct = cleanedProducts[j];
 
         currentCluster.marketplace_offers.push({ platform: jProduct.platform, params: jProduct });
-        if (jPrice < currentCluster.best_price) {
-          currentCluster.best_price = jPrice;
+        if (jProduct.parsedPrice < currentCluster.best_price) {
+          currentCluster.best_price = jProduct.parsedPrice;
           currentCluster.cheapest_platform = jProduct.platform;
         }
         processedIndices.add(j);
