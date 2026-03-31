@@ -3,9 +3,9 @@ import { ProductCluster } from './ml-engine';
 // 1. filterAnomalies (Expert Math System - IQR)
 export function filterAnomalies(rawProducts: any[]) {
     if (!rawProducts || rawProducts.length === 0) {
-        return { 
-           cleanProducts: [], 
-           marketAnalytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, items_excluded_count: 0 } 
+        return {
+            cleanProducts: [],
+            marketAnalytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, items_excluded_count: 0 }
         };
     }
 
@@ -17,16 +17,16 @@ export function filterAnomalies(rawProducts: any[]) {
 
     const prices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
     let avgPrice = 0;
-    
+
     // EDGE CASE: Arrays < 4 cannot statistically support IQR properly
     if (prices.length < 4) {
         if (prices.length > 0) avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
         return {
             cleanProducts: parsedData,
             marketAnalytics: {
-               average_price: Math.round(avgPrice),
-               market_range: { lowest: prices[0] || 0, highest: prices[prices.length - 1] || 0 },
-               items_excluded_count: 0 // Bypassed
+                average_price: Math.round(avgPrice),
+                market_range: { lowest: prices[0] || 0, highest: prices[prices.length - 1] || 0 },
+                items_excluded_count: 0 // Bypassed
             }
         };
     }
@@ -35,7 +35,7 @@ export function filterAnomalies(rawProducts: any[]) {
     const q3Index = Math.floor(prices.length * 0.75);
     const q1 = prices[q1Index];
     const q3 = prices[q3Index];
-    
+
     const iqr = q3 - q1;
     const lowerBound = Math.max(0, q1 - 1.5 * iqr);
     const upperBound = q3 + 1.5 * iqr;
@@ -54,8 +54,10 @@ export function filterAnomalies(rawProducts: any[]) {
     }
 
     avgPrice = cleanProducts.length > 0 ? sum / cleanProducts.length : 0;
-    
+
     const validPrices = cleanProducts.map(p => p.parsedPrice);
+
+    // 🛡️ V8 SPREAD OPERATOR FIX: Menggunakan reduce() untuk mencegah Maximum Call Stack Exceeded pada array raksasa
     const lowest = validPrices.length > 0 ? validPrices.reduce((min, p) => p < min ? p : min, validPrices[0]) : 0;
     const highest = validPrices.length > 0 ? validPrices.reduce((max, p) => p > max ? p : max, validPrices[0]) : 0;
 
@@ -87,7 +89,7 @@ export function generateDecisionTreeSummary(analytics: any, clusters: ProductClu
     // Node 1: Evaluation
     if (avgPrice > 0) {
         const discountRatio = (avgPrice - bestPrice) / avgPrice;
-        
+
         if (discountRatio > 0.10) {
             const percentageRounded = Math.round(discountRatio * 100);
             return {
@@ -95,16 +97,16 @@ export function generateDecisionTreeSummary(analytics: any, clusters: ProductClu
                 buy_recommendation: "Buy Now"
             };
         } else if (discountRatio > 0) {
-             const percentageRounded = Math.round(discountRatio * 100);
-             return {
-                 summary: `Evaluasi Pakar: Temuan harga normal di ${platform} (${percentageRounded}% di bawah paritas wajar). Eksekusi pembelian secara proporsional.`,
-                 buy_recommendation: "Stable / Optional buy"
-             };
+            const percentageRounded = Math.round(discountRatio * 100);
+            return {
+                summary: `Evaluasi Pakar: Temuan harga normal di ${platform} (${percentageRounded}% di bawah paritas wajar). Eksekusi pembelian secara proporsional.`,
+                buy_recommendation: "Stable / Optional buy"
+            };
         } else {
-             return {
-                 summary: `Evaluasi Pakar: Rentang terendah di ${platform} menembus batas ekuilibrium wajar pasar (Inflasi temporal). Dimohon untuk menahan (Hold) nilai transaksi Anda hingga depresiasi platform terjadi.`,
-                 buy_recommendation: "Wait"
-             };
+            return {
+                summary: `Evaluasi Pakar: Rentang terendah di ${platform} menembus batas ekuilibrium wajar pasar (Inflasi temporal). Dimohon untuk menahan (Hold) nilai transaksi Anda hingga depresiasi platform terjadi.`,
+                buy_recommendation: "Wait"
+            };
         }
     }
 
