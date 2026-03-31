@@ -32,6 +32,7 @@ interface MarketplaceOffer {
   platform: string;
   price: number;
   link: string;
+  url?: string;
   condition: string;
 }
 
@@ -47,6 +48,7 @@ interface ProductCluster {
 
 interface Intent {
   category: string;
+  clean_keyword?: string;
   budget: number | null;
   type: string;
 }

@@ -61,11 +61,11 @@ export function trainAndPredictIntent(query: string) {
 
   // Extract budget using pure algorithmic RegExp
   let budget = null;
-  const budgetMatch = qLower.match(/(di bawah|budget|max|maksimal) (\d+([.,]\d+)?\s*(ribu|juta)?|\d+)/i);
+  const budgetMatch = qLower.match(/(di bawah|budget|max|maksimal) (\d+([.,]\d+)?\s*(ribu|juta|jt)?|\d+)/i);
   if (budgetMatch) {
-    let numStr = budgetMatch[2].replace(/[.,]/g, '');
+    let numStr = budgetMatch[2].replace(/[.,a-z\s]/gi, ''); // Membersihkan sisa huruf dari angka
     if (budgetMatch[4] === 'ribu' || (numStr.length <= 3 && budgetMatch[4] == null)) numStr += '000';
-    if (budgetMatch[4] === 'juta') numStr += '000000';
+    if (budgetMatch[4] === 'juta' || budgetMatch[4] === 'jt') numStr += '000000';
     budget = parseInt(numStr, 10);
   }
 
@@ -83,6 +83,10 @@ export function trainAndPredictIntent(query: string) {
 export function clusterProductsML(products: any[]): ProductCluster[] {
   if (!products || products.length === 0) return [];
 
+  // 🛡️ SCALABILITY CAPPING: Mencegah V8 Event Loop Blocking akibat komputasi O(N^2)
+  // Membatasi maksimum 120 dokumen yang akan diproses oleh TF-IDF Singleton
+  const cappedProducts = products.length > 120 ? products.slice(0, 120) : products;
+
   const TfIdf = natural.TfIdf;
   const tfidf = new TfIdf();
 
@@ -90,7 +94,7 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
   const tokenizer = new natural.RegexpTokenizer({ pattern: /[a-z0-9]+/i });
 
   // Clean text and Map Prices globally first to save CPU later
-  const cleanedProducts = products.map(p => {
+  const cleanedProducts = cappedProducts.map(p => {
     const cleanTitle = p.title.toLowerCase()
       .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, ' ')
       .replace(/[^a-z0-9\s]/g, ' ')

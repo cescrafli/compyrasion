@@ -20,15 +20,50 @@ export interface AbortState {
 // =========================================
 let globalBrowserInstance: any = null;
 let browserLaunchPromise: Promise<any> | null = null;
+let browserCreatedAt: number = 0;
+const BROWSER_TTL_MS = 60 * 60 * 1000; // 1 Jam batasan maksimal agar vRAM Chrome direfresh
+
+const isBrowserAlive = async (): Promise<boolean> => {
+    if (!globalBrowserInstance) return false;
+    
+    // 🛡️ 1. TTL Check Validation (Memory Leak Protection)
+    if (Date.now() - browserCreatedAt > BROWSER_TTL_MS) {
+        console.warn("🔄 [TTL] Browser Instance melewati batas usia 1 Jam. Memaksa Restart...");
+        return false;
+    }
+
+    // 🛡️ 2. Deadlock Heartbeat Ping
+    try {
+        const pages = await globalBrowserInstance.pages();
+        return Array.isArray(pages);
+    } catch {
+        console.warn("⚠️ [Deadlock] Socket Chromium tidak merespons (Ping Gagal).");
+        return false;
+    }
+};
 
 const getBrowserInstance = async () => {
+    // 🛡️ Phase 1: Pengecekan Deadlock & Usia TTL sebelum mengizinkan antrean
+    if (globalBrowserInstance) {
+        const alive = await isBrowserAlive();
+        if (!alive) {
+            try { await globalBrowserInstance.close().catch(()=>{}); } catch(e) {}
+            try { 
+                const process = globalBrowserInstance.process();
+                if (process) process.kill('SIGKILL');
+            } catch(e) {}
+            
+            globalBrowserInstance = null;
+            browserLaunchPromise = null;
+        }
+    }
+
     if (!globalBrowserInstance) {
         if (!browserLaunchPromise) {
             browserLaunchPromise = (async () => {
                 try {
                     globalBrowserInstance = await puppeteer.launch({
-                        // Gunakan headless: true untuk kecepatan, Google Shopping lebih toleran 
-                        // terhadap headless dibanding Shopee langsung.
+                        // Gunakan headless: true untuk kecepatan, Google Shopping toleran terhadap ini
                         headless: true,
                         defaultViewport: { width: 1920, height: 1080 },
                         args: [
@@ -39,6 +74,9 @@ const getBrowserInstance = async () => {
                             '--disable-blink-features=AutomationControlled'
                         ]
                     });
+
+                    // Set rentang waktu kelahiran browser
+                    browserCreatedAt = Date.now();
 
                     if (globalBrowserInstance && typeof globalBrowserInstance.on === 'function') {
                         globalBrowserInstance.on('disconnected', () => {
@@ -112,6 +150,7 @@ export async function runScrapingPipeline(
         // Scroll untuk memicu lazy load gambar
         await page.evaluate(() => window.scrollBy(0, 1000));
         await new Promise(resolve => setTimeout(resolve, 2000));
+        await page.screenshot({ path: 'google_shopping_debug.png' });
 
         // 🤖 GOOGLE SHOPPING SMART EXTRACTOR
         const scrapedResults = await page.evaluate(() => {
@@ -176,7 +215,7 @@ export async function runScrapingPipeline(
         });
 
         // Filter unik dan ambil hingga 30 hasil terbaik
-        const uniqueResults = Array.from(new Map(scrapedResults.map(item => [item.url, item])).values());
+        const uniqueResults = Array.from(new Map<string, ScrapedProduct>(scrapedResults.map((item: ScrapedProduct) => [item.url, item])).values());
         finalResults = uniqueResults.slice(0, 30);
 
         console.log(`✅ [Aggregator] Berhasil mendapatkan ${finalResults.length} produk dari Google Shopping!`);

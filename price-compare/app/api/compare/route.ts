@@ -4,8 +4,8 @@ import { runScrapingPipeline, ScrapedProduct, AbortState } from './lib/scraper-e
 import { trainAndPredictIntent, clusterProductsML, ProductCluster } from './lib/ml-engine';
 import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 
-// Memory Caching (1 Jam)
-const cache = new NodeCache({ stdTTL: 3600 });
+// Memory Caching (1 Jam) dengan V8 Exhaustion Guard (Max 200 Indeks)
+const cache = new NodeCache({ stdTTL: 3600, maxKeys: 200 });
 
 // Interface Payload untuk konsistensi data dengan Frontend
 interface ComparisonResponse {
@@ -34,6 +34,11 @@ export async function GET(request: Request) {
 
   if (!q) {
     return NextResponse.json({ error: "Missing 'q' parameter." }, { status: 400 });
+  }
+
+  // 🛡️ DDOS PAYLOAD RESTRICTION (Mencegah serangan bot eksekusi memori)
+  if (q.length > 50) {
+      return NextResponse.json({ error: "Query exceeds maximum allowed length of 50 characters. Request Dropped." }, { status: 413 });
   }
 
   // 🛡️ CACHE POISONING FIX: Normalisasi input agar cache efisien

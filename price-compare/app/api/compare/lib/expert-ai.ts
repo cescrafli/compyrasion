@@ -15,8 +15,36 @@ export function filterAnomalies(rawProducts: any[]) {
         return { ...p, parsedPrice: isNaN(pPrice) ? 0 : pPrice };
     }).filter(p => p.parsedPrice > 0);
 
-    const prices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
+    let prices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
     let avgPrice = 0;
+
+    // 🛡️ BIMODAL PRE-FILTRATION (K-Means 1D)
+    // Tujuannya membuang aksesoris seharga 50rb yang menempel pada pencarian Laptop 10jt
+    let kmeansFilteredData = parsedData;
+    let bimodalExcluded = 0;
+    
+    if (prices.length >= 6) {
+        let c1 = prices[0];
+        let c2 = prices[prices.length - 1];
+        
+        for (let i = 0; i < 5; i++) {
+            let sum1 = 0, cnt1 = 0, sum2 = 0, cnt2 = 0;
+            for (let p of prices) {
+                if (Math.abs(p - c1) < Math.abs(p - c2)) { sum1 += p; cnt1++; }
+                else { sum2 += p; cnt2++; }
+            }
+            if (cnt1) c1 = sum1 / cnt1;
+            if (cnt2) c2 = sum2 / cnt2;
+        }
+        
+        // C1 adalah kluster termurah. Jika rata-ratanya < 30% dari kluster atas (C2) -> ini aksesoris!
+        if (c1 < c2 * 0.3 && c2 > 0) {
+            const boundary = (c1 + c2) / 2;
+            kmeansFilteredData = parsedData.filter(p => p.parsedPrice >= boundary);
+            bimodalExcluded = parsedData.length - kmeansFilteredData.length;
+            prices = kmeansFilteredData.map(p => p.parsedPrice).sort((a, b) => a - b);
+        }
+    }
 
     // EDGE CASE: Arrays < 4 cannot statistically support IQR properly
     if (prices.length < 4) {
@@ -41,10 +69,10 @@ export function filterAnomalies(rawProducts: any[]) {
     const upperBound = q3 + 1.5 * iqr;
 
     const cleanProducts: any[] = [];
-    let excludedCount = 0;
+    let excludedCount = bimodalExcluded; // Tambahkan yang dibuang oleh K-Means
     let sum = 0;
 
-    for (const product of parsedData) {
+    for (const product of kmeansFilteredData) {
         if (product.parsedPrice >= lowerBound && product.parsedPrice <= upperBound) {
             cleanProducts.push(product);
             sum += product.parsedPrice;
@@ -89,6 +117,17 @@ export function generateDecisionTreeSummary(analytics: any, clusters: ProductClu
     // Node 1: Evaluation
     if (avgPrice > 0) {
         const discountRatio = (avgPrice - bestPrice) / avgPrice;
+
+        // 🛡️ SCAM DECISION GATE (Diskon Ekstrem)
+        if (discountRatio > 0.40) {
+            const percentageRounded = Math.round(discountRatio * 100);
+            if ((mostPopularCluster.rating || 4.0) < 4.8 || mostPopularCluster.marketplace_offers.length < 3) {
+                 return {
+                     summary: `WASPADA: Harga di ${platform} terdeteksi sebagai ANOMALI KRITIS (${percentageRounded}% lebih murah dari ekuilibrium pasar). Probabilitas tinggi barang palsu (HDC), aksesoris, atau penipuan.`,
+                     buy_recommendation: "Avoid / Scam Risk"
+                 };
+            }
+        }
 
         if (discountRatio > 0.10) {
             const percentageRounded = Math.round(discountRatio * 100);
