@@ -65,17 +65,19 @@ export async function GET(request: Request) {
            }, TIMEOUT_MS);
        });
 
-       // 🛡️ Promise.race forces the scraping to yield if the server queue is backed up
-       // This prevents Vercel/Node edge functions from terminating entirely.
-       rawProducts = await Promise.race([
-           runScrapingPipeline(intent.clean_keyword, [
-               "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak", 
-               "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
-           ], abortState),
-           timeoutPromise
-       ]);
-       
-       clearTimeout(timerId!); // Destroy the timeout if the scraper wins the race early to prevent unhandled rejections
+       try {
+           // 🛡️ Promise.race forces the scraping to yield if the server queue is backed up
+           // This prevents Vercel/Node edge functions from terminating entirely.
+           rawProducts = await Promise.race([
+               runScrapingPipeline(intent.clean_keyword, [
+                   "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak", 
+                   "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
+               ], abortState),
+               timeoutPromise
+           ]);
+       } finally {
+           clearTimeout(timerId!); // Destroy the timeout if the scraper wins the race early to prevent unhandled rejections
+       }
     } catch (scrapeErr: any) {
        console.warn("Orchestrator: Scraper Pipeline Fault -", scrapeErr.message);
        // Catch the timeout gracefully, proceeding down to the IQR & NLP mapping

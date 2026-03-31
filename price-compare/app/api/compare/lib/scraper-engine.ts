@@ -25,27 +25,35 @@ export interface AbortState {
 // 1. GLOBAL BROWSER SINGLETON
 // =========================================
 let globalBrowserInstance: any = null;
+let browserLaunchPromise: Promise<any> | null = null;
 
 const getBrowserInstance = async () => {
     if (!globalBrowserInstance) {
-        // Uncomment below for actual puppeteer launch
-        /*
-        globalBrowserInstance = await puppeteer.launch({ 
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
-        });
-        */
-        
-        // Dummy mock for algorithmic demonstration
-        globalBrowserInstance = {
-           newPage: async () => ({
-               goto: async () => {},
-               close: async () => {}
-           }),
-           close: async () => {
-               globalBrowserInstance = null;
-           }
-        };
+        if (!browserLaunchPromise) {
+            browserLaunchPromise = (async () => {
+                // Uncomment below for actual puppeteer launch
+                /*
+                globalBrowserInstance = await puppeteer.launch({ 
+                    headless: true,
+                    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] 
+                });
+                */
+                
+                // Dummy mock for algorithmic demonstration
+                globalBrowserInstance = {
+                   newPage: async () => ({
+                       goto: async () => {},
+                       close: async () => {}
+                   }),
+                   close: async () => {
+                       globalBrowserInstance = null;
+                       browserLaunchPromise = null;
+                   }
+                };
+                return globalBrowserInstance;
+            })();
+        }
+        await browserLaunchPromise;
     }
     return globalBrowserInstance;
 };
