@@ -17,6 +17,10 @@ export interface ScrapedProduct {
   image: string;
 }
 
+export interface AbortState {
+  aborted: boolean;
+}
+
 // =========================================
 // 1. GLOBAL BROWSER SINGLETON
 // =========================================
@@ -103,7 +107,11 @@ const releaseConcurrencySlot = () => {
 // =========================================
 // MAIN PIPELINE
 // =========================================
-export async function runScrapingPipeline(cleanKeyword: string, targetPlatforms: string[] = PLATFORMS): Promise<ScrapedProduct[]> {
+export async function runScrapingPipeline(
+  cleanKeyword: string, 
+  targetPlatforms: string[] = PLATFORMS,
+  abortState?: AbortState
+): Promise<ScrapedProduct[]> {
   const results: ScrapedProduct[] = [];
   
   // Lazily ignite or pull the global Chrome instance
@@ -113,6 +121,14 @@ export async function runScrapingPipeline(cleanKeyword: string, targetPlatforms:
     
     // 🛡️ OOM PROTECTION: Block execution thread here until a slot opens globally
     await acquireConcurrencySlot();
+
+    // 🛡️ CANCELLATION AWARENESS: Fail immediately if the Orchestrator already gave up
+    // This stops background promises from continuing their extraction loops uselessly
+    if (abortState?.aborted) {
+        console.warn(`[ABORTED] Skipping scrape for ${platform} - Orchestrator closed thread.`);
+        releaseConcurrencySlot();
+        return [];
+    }
 
     try {
       /*

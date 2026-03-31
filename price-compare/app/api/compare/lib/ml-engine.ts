@@ -76,11 +76,14 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
   const TfIdf = natural.TfIdf;
   const tfidf = new TfIdf();
   
+  // Custom Tokenizer explicitly capturing / keeping numbers to fix blindspots
+  const tokenizer = new natural.RegexpTokenizer({ pattern: /[a-z0-9]+/i });
+  
   // Clean text and Map Prices globally first to save CPU later
   const cleanedProducts = products.map(p => {
       const cleanTitle = p.title.toLowerCase()
-          // Drop noisy logic loops
-          .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, '')
+          // Replaced '' with ' ' space to prevent concatenation bugs (e.g. termurahiphone -> iphone)
+          .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, ' ')
           // PRESERVE ALPHANUMERIC: ^a-z0-9 explicitly stops mathematical numbers from shedding
           .replace(/[^a-z0-9\s]/g, ' ')
           .replace(/\s+/g, ' ')
@@ -88,7 +91,14 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
       
       const parsedPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
       
-      tfidf.addDocument(cleanTitle);
+      // Explicitly tokenize and insert as Array, bypassing TfIdf's default number-shedding tokenizer
+      const tokens = tokenizer.tokenize(cleanTitle) || [];
+      if (tokens.length > 0) {
+          tfidf.addDocument(tokens);
+      } else {
+          // Fallback if fully empty to ensure tfidf indexing matches `cleanedProducts` array length
+          tfidf.addDocument([cleanTitle]);
+      }
       
       return { ...p, cleanTitle, parsedPrice: isNaN(parsedPrice) ? 0 : parsedPrice };
   });
@@ -117,8 +127,6 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
     // Get Vector formulation for Document I
     const termsI: Record<string, number> = {};
     tfidf.listTerms(i).forEach(item => {
-        // Natural's TfIdf will internally tokenize correctly. 
-        // We explicitly keep alphanumeric patterns from the text above.
         termsI[item.term] = item.tfidf;
     });
 

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import NodeCache from 'node-cache';
-import { runScrapingPipeline, ScrapedProduct } from './lib/scraper-engine';
+import { runScrapingPipeline, ScrapedProduct, AbortState } from './lib/scraper-engine';
 import { trainAndPredictIntent, clusterProductsML, ProductCluster } from './lib/ml-engine';
 import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 
@@ -49,18 +49,28 @@ export async function GET(request: Request) {
     let rawProducts: any[] = [];
     let pipelineError: string | undefined = undefined;
 
-    // 2. TIMEOUT PROTECTION OOM QUEUE
+    // 2. CANCELLATION AWARENESS: TIMEOUT PROTECTION OOM QUEUE + ABORT SIGNAL 
+    const abortState: AbortState = { aborted: false };
+
     try {
        // Graceful 25-Second API Timeout Promise
        const TIMEOUT_MS = 25000;
        const timeoutPromise = new Promise<ScrapedProduct[]>((_, reject) => {
-           setTimeout(() => reject(new Error("Global Scraper Queue Timeout: Aborted after 25s to save API response.")), TIMEOUT_MS);
+           setTimeout(() => {
+               // Signal background threads instantly that the Orchestrator has jumped ship
+               // This instantly prevents background promises from accumulating zombie loops
+               abortState.aborted = true; 
+               reject(new Error("Global Scraper Queue Timeout: Aborted after 25s to save API response."));
+           }, TIMEOUT_MS);
        });
 
        // 🛡️ Promise.race forces the scraping to yield if the server queue is backed up
        // This prevents Vercel/Node edge functions from terminating entirely.
        rawProducts = await Promise.race([
-           runScrapingPipeline(intent.clean_keyword),
+           runScrapingPipeline(intent.clean_keyword, [
+               "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak", 
+               "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
+           ], abortState),
            timeoutPromise
        ]);
     } catch (scrapeErr: any) {
