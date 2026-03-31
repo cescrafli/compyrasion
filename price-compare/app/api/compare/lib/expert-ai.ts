@@ -1,5 +1,37 @@
 import { ProductCluster } from './ml-engine';
 
+// 🛡️ HELPER: BIMODAL PRE-FILTRATION (K-Means 1D)
+// Tujuan: membuang aksesoris seharga 50rb yang menempel pada pencarian perangkat 10jt
+function filterBimodalNoise(parsedData: any[], prices: number[]) {
+    if (prices.length < 6) return { cleanData: parsedData, excludedCount: 0, validPrices: prices };
+
+    let c1 = prices[0];
+    let c2 = prices[prices.length - 1];
+    
+    for (let i = 0; i < 5; i++) {
+        let sum1 = 0, cnt1 = 0, sum2 = 0, cnt2 = 0;
+        for (let p of prices) {
+            if (Math.abs(p - c1) < Math.abs(p - c2)) { sum1 += p; cnt1++; }
+            else { sum2 += p; cnt2++; }
+        }
+        if (cnt1) c1 = sum1 / cnt1;
+        if (cnt2) c2 = sum2 / cnt2;
+    }
+    
+    // Jika rata-rata kluster bawah < 30% dari kluster atas (C2) -> ini aksesoris!
+    if (c1 < c2 * 0.3 && c2 > 0) {
+        const boundary = (c1 + c2) / 2;
+        const cleanData = parsedData.filter(p => p.parsedPrice >= boundary);
+        return {
+            cleanData,
+            excludedCount: parsedData.length - cleanData.length,
+            validPrices: cleanData.map(p => p.parsedPrice).sort((a, b) => a - b)
+        };
+    }
+    
+    return { cleanData: parsedData, excludedCount: 0, validPrices: prices };
+}
+
 // 1. filterAnomalies (Expert Math System - IQR)
 export function filterAnomalies(rawProducts: any[]) {
     if (!rawProducts || rawProducts.length === 0) {
@@ -15,36 +47,10 @@ export function filterAnomalies(rawProducts: any[]) {
         return { ...p, parsedPrice: isNaN(pPrice) ? 0 : pPrice };
     }).filter(p => p.parsedPrice > 0);
 
-    let prices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
-    let avgPrice = 0;
-
-    // 🛡️ BIMODAL PRE-FILTRATION (K-Means 1D)
-    // Tujuannya membuang aksesoris seharga 50rb yang menempel pada pencarian Laptop 10jt
-    let kmeansFilteredData = parsedData;
-    let bimodalExcluded = 0;
+    const initialPrices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
     
-    if (prices.length >= 6) {
-        let c1 = prices[0];
-        let c2 = prices[prices.length - 1];
-        
-        for (let i = 0; i < 5; i++) {
-            let sum1 = 0, cnt1 = 0, sum2 = 0, cnt2 = 0;
-            for (let p of prices) {
-                if (Math.abs(p - c1) < Math.abs(p - c2)) { sum1 += p; cnt1++; }
-                else { sum2 += p; cnt2++; }
-            }
-            if (cnt1) c1 = sum1 / cnt1;
-            if (cnt2) c2 = sum2 / cnt2;
-        }
-        
-        // C1 adalah kluster termurah. Jika rata-ratanya < 30% dari kluster atas (C2) -> ini aksesoris!
-        if (c1 < c2 * 0.3 && c2 > 0) {
-            const boundary = (c1 + c2) / 2;
-            kmeansFilteredData = parsedData.filter(p => p.parsedPrice >= boundary);
-            bimodalExcluded = parsedData.length - kmeansFilteredData.length;
-            prices = kmeansFilteredData.map(p => p.parsedPrice).sort((a, b) => a - b);
-        }
-    }
+    const { cleanData: kmeansFilteredData, excludedCount: bimodalExcluded, validPrices: prices } = filterBimodalNoise(parsedData, initialPrices);
+    let avgPrice = 0;
 
     // EDGE CASE: Arrays < 4 cannot statistically support IQR properly
     if (prices.length < 4) {

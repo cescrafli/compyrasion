@@ -52,6 +52,15 @@ function calculateCosineSimilarity(vecA: Record<string, number>, vecB: Record<st
   return dotProduct / (Math.sqrt(magA) * Math.sqrt(magB));
 }
 
+// 🛒 Helper: Membersihkan judul dari kata-kata promosi (Noise)
+function sanitizeProductTitle(title: string): string {
+  return title.toLowerCase()
+    .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // 1. trainAndPredictIntent
 export function trainAndPredictIntent(query: string) {
   const qLower = query.toLowerCase();
@@ -95,11 +104,7 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
 
   // Clean text and Map Prices globally first to save CPU later
   const cleanedProducts = cappedProducts.map(p => {
-    const cleanTitle = p.title.toLowerCase()
-      .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, ' ')
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
+    const cleanTitle = sanitizeProductTitle(p.title);
 
     const parsedPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
 

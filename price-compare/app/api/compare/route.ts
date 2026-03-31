@@ -7,7 +7,7 @@ import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 // Memory Caching (1 Jam) dengan V8 Exhaustion Guard (Max 200 Indeks)
 const cache = new NodeCache({ stdTTL: 3600, maxKeys: 200 });
 
-// Interface Payload untuk konsistensi data dengan Frontend
+// Interface Payload untuk konsistensi kontrak data dengan Frontend
 interface ComparisonResponse {
   query_intent: {
     category: string;
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Natural Language Intent Routing (Offline NB Classifier)
+    // 1. Natural Language Intent Routing (Offline Classifier)
     const intent = trainAndPredictIntent(q);
 
     let rawProducts: ScrapedProduct[] = [];
@@ -72,8 +72,7 @@ export async function GET(request: Request) {
       });
 
       try {
-        // 🚀 MENGGUNAKAN GOOGLE SHOPPING AGGREGATOR
-        // Kita tidak perlu mengirim daftar platform lagi karena Google sudah merangkum semuanya
+        // 🚀 Execute Primary Pipeline: Google Shopping Aggregator
         rawProducts = await (Promise.race([
           runScrapingPipeline(intent.clean_keyword, [], abortState),
           timeoutPromise
@@ -86,16 +85,16 @@ export async function GET(request: Request) {
       pipelineError = scrapeErr.message;
     }
 
-    // 3. IQR Mathematics Engine (Filter harga anomali)
+    // 3. IQR Mathematics Engine (Filter harga anomali / scam)
     const anomalyFiltered = filterAnomalies(rawProducts);
 
-    // 4. ML Semantic TF-IDF + Cosine Clustering (Pengelompokan barang identik)
+    // 4. ML Semantic TF-IDF + Cosine Clustering
     const clusters = clusterProductsML(anomalyFiltered.cleanProducts);
 
-    // 5. Intelligent Decision Nodes (Generasi ringkasan AI)
+    // 5. Intelligent Decision Nodes
     const smartSummary = generateDecisionTreeSummary(anomalyFiltered.marketAnalytics, clusters);
 
-    // 6. Safe Payload Construction
+    // 6. Response Payload Assembly
     const responsePayload: ComparisonResponse = {
       query_intent: intent,
       market_stats: anomalyFiltered.marketAnalytics,

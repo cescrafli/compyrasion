@@ -149,8 +149,6 @@ export async function runScrapingPipeline(
 
         // Scroll untuk memicu lazy load gambar
         await page.evaluate(() => window.scrollBy(0, 1000));
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await page.screenshot({ path: 'google_shopping_debug.png' });
 
         // 🤖 GOOGLE SHOPPING SMART EXTRACTOR
         const scrapedResults = await page.evaluate(() => {

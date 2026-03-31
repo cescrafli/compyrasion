@@ -1,5 +1,0 @@
-app/api/compare/lib/scraper-engine.ts(218,9): error TS2322: Type 'unknown[]' is not assignable to type 'ScrapedProduct[]'.
-  Type 'unknown' is not assignable to type 'ScrapedProduct'.
-app/page.tsx(135,123): error TS2339: Property 'clean_keyword' does not exist on type 'Intent'.
-app/page.tsx(205,51): error TS2339: Property 'url' does not exist on type 'MarketplaceOffer'.
-app/page.tsx(225,89): error TS2339: Property 'url' does not exist on type 'MarketplaceOffer'.
