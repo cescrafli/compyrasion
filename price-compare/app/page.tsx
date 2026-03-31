@@ -132,7 +132,7 @@ function IntentHeader({ intent }: { intent: Intent }) {
           </div>
           <div className="space-y-1">
             <h2 className="text-4xl font-black text-gray-900 tracking-tighter leading-tight">
-              Mencari <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-8 italic">{intent.category || "Produk"}</span>
+              Mencari <span className="text-indigo-600 underline decoration-indigo-200 underline-offset-8 italic">{intent.clean_keyword || "Produk"}</span>
               {intent.budget && <span className="text-gray-400"> budget {formatRupiah(intent.budget)}</span>}
             </h2>
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.3em]">Query Optimization: {intent.type || "Search"} Priority</p>

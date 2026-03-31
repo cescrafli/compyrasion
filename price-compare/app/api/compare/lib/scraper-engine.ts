@@ -3,11 +3,6 @@ import puppeteer from 'puppeteer-extra';
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
-const PLATFORMS = [
-    "Tokopedia", "Shopee", "Lazada", "BliBli", "Bukalapak",
-    "JD.ID", "Bhinneka", "Zalora", "Matahari", "Erafone", "iBox"
-];
-
 export interface ScrapedProduct {
     title: string;
     price: number;
@@ -31,21 +26,22 @@ const getBrowserInstance = async () => {
         if (!browserLaunchPromise) {
             browserLaunchPromise = (async () => {
                 try {
-                    // MENGAKTIFKAN PUPPETEER ASLI (TanPA MOCK LAGI)
                     globalBrowserInstance = await puppeteer.launch({
+                        // Gunakan headless: true untuk kecepatan, Google Shopping lebih toleran 
+                        // terhadap headless dibanding Shopee langsung.
                         headless: true,
+                        defaultViewport: { width: 1920, height: 1080 },
                         args: [
                             '--no-sandbox',
                             '--disable-setuid-sandbox',
                             '--disable-dev-shm-usage',
-                            '--window-size=1920,1080' // Penting agar website merender versi desktop
+                            '--window-size=1920,1080',
+                            '--disable-blink-features=AutomationControlled'
                         ]
                     });
 
-                    // 🛡️ THE PHANTOM BROWSER FIX
                     if (globalBrowserInstance && typeof globalBrowserInstance.on === 'function') {
                         globalBrowserInstance.on('disconnected', () => {
-                            console.warn("⚠️ ALARM: Browser terputus atau dibunuh OS. Mereset Singleton Lock...");
                             globalBrowserInstance = null;
                             browserLaunchPromise = null;
                         });
@@ -53,7 +49,6 @@ const getBrowserInstance = async () => {
 
                     return globalBrowserInstance;
                 } catch (initError) {
-                    console.error("CRITICAL: Failed to initialize Global Browser, releasing lock.", initError);
                     globalBrowserInstance = null;
                     browserLaunchPromise = null;
                     throw initError;
@@ -70,13 +65,10 @@ const getBrowserInstance = async () => {
 // =========================================
 const killZombieProcesses = async () => {
     if (globalBrowserInstance) {
-        console.log("Runtime stopping. Gracefully killing global Chromium instance...");
         try {
             await globalBrowserInstance.close();
             globalBrowserInstance = null;
-        } catch (e) {
-            console.error("Failed to securely close global browser. Zombie process possible.", e);
-        }
+        } catch (e) { }
     }
 };
 
@@ -87,169 +79,115 @@ process.on('exit', () => {
 });
 
 // =========================================
-// 3. GLOBAL CONCURRENCY SEMAPHORE (POOL = 5)
-// =========================================
-const MAX_CONCURRENT_PAGES = 5;
-let activePagesCount = 0;
-const concurrencyQueue: (() => void)[] = [];
-
-const acquireConcurrencySlot = async (): Promise<void> => {
-    return new Promise((resolve) => {
-        if (activePagesCount < MAX_CONCURRENT_PAGES) {
-            activePagesCount++;
-            resolve();
-        } else {
-            concurrencyQueue.push(resolve);
-        }
-    });
-};
-
-const releaseConcurrencySlot = () => {
-    activePagesCount--;
-    if (concurrencyQueue.length > 0) {
-        const nextTask = concurrencyQueue.shift();
-        if (nextTask) {
-            activePagesCount++;
-            nextTask();
-        }
-    }
-};
-
-// =========================================
-// MAIN PIPELINE (HEURISTIC AUTO-EXTRACTOR)
+// MAIN PIPELINE: GOOGLE SHOPPING AGGREGATOR
 // =========================================
 export async function runScrapingPipeline(
     cleanKeyword: string,
-    targetPlatforms: string[] = ["Tokopedia", "Shopee"], // Fokus ke 2 raksasa dulu untuk uji coba
+    targetPlatforms: string[] = [], // Diabaikan karena Google mencakup semua platform
     abortState?: AbortState
 ): Promise<ScrapedProduct[]> {
-    const results: ScrapedProduct[] = [];
     const browser = await getBrowserInstance();
+    if (abortState?.aborted) return [];
 
-    const scrapePlatform = async (platform: string): Promise<ScrapedProduct[]> => {
-        if (abortState?.aborted) return [];
-        await acquireConcurrencySlot();
-        if (abortState?.aborted) {
-            releaseConcurrencySlot();
-            return [];
-        }
-
-        let page: any = null;
-
-        try {
-            page = await browser.newPage();
-
-            // Menyamar sebagai manusia
-            await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
-            // 🛡️ NETWORK INTERCEPTOR: Kecepatan super, blokir gambar & CSS
-            if (page && typeof page.setRequestInterception === 'function') {
-                await page.setRequestInterception(true);
-                page.on('request', (req: any) => {
-                    const resourceType = typeof req.resourceType === 'function' ? req.resourceType() : '';
-                    if (['image', 'stylesheet', 'font', 'media', 'imageset'].includes(resourceType)) {
-                        req.abort();
-                    } else if (typeof req.continue === 'function') {
-                        req.continue();
-                    }
-                });
-            }
-
-            // Atur URL Target
-            let targetUrl = `https://dummy-${platform.toLowerCase()}.com/search?q=${encodeURI(cleanKeyword)}`;
-            if (platform === 'Tokopedia') targetUrl = `https://www.tokopedia.com/search?q=${encodeURI(cleanKeyword)}`;
-            if (platform === 'Shopee') targetUrl = `https://shopee.co.id/search?keyword=${encodeURI(cleanKeyword)}`;
-
-            await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
-
-            // Gulir layar ke bawah sedikit untuk memicu Lazy-Load produk
-            await page.evaluate(() => window.scrollBy(0, 800));
-            // Beri waktu 1.5 detik agar framework Vue/React merender DOM
-            await new Promise(resolve => setTimeout(resolve, 1500));
-
-            // 🤖 AUTO-EXTRACTOR HEURISTIC (TANPA CSS SELECTOR)
-            const scrapedResults = await page.evaluate((plat: string) => {
-                const extracted: ScrapedProduct[] = [];
-                // Cari semua elemen teks
-                const textNodes = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
-                let currentNode = textNodes.nextNode();
-                const priceElements = [];
-
-                // 1. Identifikasi teks Harga (berisi "Rp")
-                while (currentNode) {
-                    if (currentNode.nodeValue && /Rp\s*[\d.,]+/.test(currentNode.nodeValue)) {
-                        priceElements.push(currentNode.parentElement);
-                    }
-                    currentNode = textNodes.nextNode();
-                }
-
-                const processedContainers = new Set();
-
-                // 2. Analisis pembungkusnya (Product Card Container)
-                for (const priceEl of priceElements) {
-                    if (!priceEl) continue;
-
-                    let container = priceEl.parentElement;
-                    for (let i = 0; i < 4; i++) {
-                        if (container && container.parentElement && container.tagName !== 'BODY') {
-                            container = container.parentElement;
-                        }
-                    }
-
-                    if (!container || processedContainers.has(container)) continue;
-                    processedContainers.add(container);
-
-                    const priceText = priceEl.textContent || '0';
-                    const priceNumber = parseInt(priceText.replace(/[^0-9]/g, ''), 10);
-                    if (isNaN(priceNumber) || priceNumber === 0) continue;
-
-                    // Cari link
-                    const anchor = container.querySelector('a') as HTMLAnchorElement;
-                    const url = anchor ? anchor.href : '';
-                    if (!url || url.includes('javascript:')) continue;
-
-                    // Cari gambar
-                    const img = container.querySelector('img') as HTMLImageElement;
-                    const image = img ? (img.src || img.getAttribute('data-src') || '') : '';
-
-                    // Cari judul produk
-                    let title = '';
-                    const allSpans = container.querySelectorAll('span, div, h2, h3');
-                    allSpans.forEach(el => {
-                        const text = el.textContent?.trim() || '';
-                        if (text.length > 15 && text.length > title.length && !text.includes('Rp')) {
-                            title = text;
-                        }
-                    });
-
-                    if (title && priceNumber > 0) {
-                        extracted.push({ title, price: priceNumber, platform: plat, url, image });
-                    }
-                }
-                return extracted;
-            }, platform);
-
-            // Filter data kosong dan ambil 10 teratas per platform agar ringan
-            return scrapedResults.filter(r => r.title !== '').slice(0, 10);
-
-        } catch (error) {
-            console.warn(`[Pipeline] Gagal merayapi ${platform} (Timeout / Proteksi Bot)`);
-            return []; // Fail-safe
-        } finally {
-            if (page && typeof page.isClosed === 'function' && !page.isClosed()) {
-                await page.close().catch(() => { });
-            }
-            releaseConcurrencySlot();
-        }
-    };
+    let page: any = null;
+    let finalResults: ScrapedProduct[] = [];
 
     try {
-        const mappedPromises = targetPlatforms.map(p => scrapePlatform(p));
-        const batchResults = await Promise.all(mappedPromises);
-        batchResults.forEach(r => results.push(...r));
-    } catch (fatals) {
-        console.error("Pipeline Engine Critical Exception:", fatals);
+        page = await browser.newPage();
+
+        // Identitas Manusia
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7'
+        });
+
+        // Target Google Shopping Indonesia
+        const targetUrl = `https://www.google.com/search?tbm=shop&q=${encodeURI(cleanKeyword)}&hl=id&gl=id`;
+
+        console.log(`🌐 [Aggregator] Mencari di Google Shopping: "${cleanKeyword}"...`);
+
+        // Gunakan networkidle2 agar data produk sempat ter-load
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+
+        // Scroll untuk memicu lazy load gambar
+        await page.evaluate(() => window.scrollBy(0, 1000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // 🤖 GOOGLE SHOPPING SMART EXTRACTOR
+        const scrapedResults = await page.evaluate(() => {
+            const extracted: ScrapedProduct[] = [];
+
+            // Mencari container produk Google (Selector ini sangat stabil)
+            const cards = Array.from(document.querySelectorAll('.sh-dgr__content, .sh-dlr__list-result, div[data-docid]'));
+
+            for (const card of cards) {
+                const text = card.textContent || (card as HTMLElement).innerText || '';
+
+                if (!text.includes('Rp')) continue;
+
+                // 1. Ekstrak Harga
+                const priceMatch = text.replace(/\s+/g, '').match(/Rp\.?([\d.,]+)/i);
+                if (!priceMatch) continue;
+                const price = parseInt(priceMatch[1].replace(/[^0-9]/g, ''), 10);
+                if (isNaN(price) || price === 0) continue;
+
+                // 2. Ekstrak Judul (Mencari Tag H3)
+                const h3 = card.querySelector('h3');
+                const title = h3 ? h3.textContent?.trim() : '';
+                if (!title) continue;
+
+                // 3. Ekstrak & Clean URL (Google biasanya melakukan redirect)
+                const a = card.querySelector('a');
+                let url = '';
+                if (a && a.href) {
+                    url = a.href;
+                    if (url.includes('/url?url=')) {
+                        try {
+                            url = decodeURIComponent(url.split('/url?url=')[1].split('&')[0]);
+                        } catch (e) { }
+                    } else if (url.startsWith('/')) {
+                        url = 'https://www.google.com' + url;
+                    }
+                }
+                if (!url || url.includes('javascript:')) continue;
+
+                // 4. Identifikasi Platform Otomatis
+                let platform = 'E-Commerce';
+                const lowerText = text.toLowerCase();
+                if (lowerText.includes('tokopedia')) platform = 'Tokopedia';
+                else if (lowerText.includes('shopee')) platform = 'Shopee';
+                else if (lowerText.includes('lazada')) platform = 'Lazada';
+                else if (lowerText.includes('blibli')) platform = 'BliBli';
+                else if (lowerText.includes('bukalapak')) platform = 'Bukalapak';
+                else {
+                    try {
+                        const host = new URL(url).hostname.replace('www.', '').split('.')[0];
+                        platform = host.charAt(0).toUpperCase() + host.slice(1);
+                    } catch (e) { }
+                }
+
+                // 5. Gambar
+                const img = card.querySelector('img');
+                const image = img ? (img.src || img.getAttribute('data-src') || '') : '';
+
+                extracted.push({ title, price, platform, url, image });
+            }
+            return extracted;
+        });
+
+        // Filter unik dan ambil hingga 30 hasil terbaik
+        const uniqueResults = Array.from(new Map(scrapedResults.map(item => [item.url, item])).values());
+        finalResults = uniqueResults.slice(0, 30);
+
+        console.log(`✅ [Aggregator] Berhasil mendapatkan ${finalResults.length} produk dari Google Shopping!`);
+
+    } catch (error) {
+        console.error(`❌ [Aggregator] Gagal merayapi Google Shopping:`, error);
+    } finally {
+        if (page && !page.isClosed()) {
+            await page.close().catch(() => { });
+        }
     }
 
-    return results;
+    return finalResults;
 }

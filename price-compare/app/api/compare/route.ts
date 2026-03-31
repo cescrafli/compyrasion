@@ -4,10 +4,10 @@ import { runScrapingPipeline, ScrapedProduct, AbortState } from './lib/scraper-e
 import { trainAndPredictIntent, clusterProductsML, ProductCluster } from './lib/ml-engine';
 import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 
-// Memory Caching
+// Memory Caching (1 Jam)
 const cache = new NodeCache({ stdTTL: 3600 });
 
-// Payload Interface enforcing type safety across the Orchestrator
+// Interface Payload untuk konsistensi data dengan Frontend
 interface ComparisonResponse {
   query_intent: {
     category: string;
@@ -36,9 +36,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing 'q' parameter." }, { status: 400 });
   }
 
-  // 🛡️ CACHE POISONING FIX: Menghapus spasi ganda dari user input
+  // 🛡️ CACHE POISONING FIX: Normalisasi input agar cache efisien
   const cacheKey = q.toLowerCase().replace(/\s+/g, ' ').trim();
   const cachedResponse = cache.get<ComparisonResponse>(cacheKey);
+
   if (cachedResponse) {
     return NextResponse.json({ source: 'cache', data: cachedResponse });
   }
@@ -47,47 +48,46 @@ export async function GET(request: Request) {
     // 1. Natural Language Intent Routing (Offline NB Classifier)
     const intent = trainAndPredictIntent(q);
 
-    let rawProducts: any[] = [];
+    let rawProducts: ScrapedProduct[] = [];
     let pipelineError: string | undefined = undefined;
 
-    // 2. CANCELLATION AWARENESS: TIMEOUT PROTECTION OOM QUEUE + ABORT SIGNAL 
+    // 2. CANCELLATION AWARENESS: Persiapan Abort Signal
     const abortState: AbortState = { aborted: false };
 
     try {
-      // Graceful 25-Second API Timeout Promise
+      // Graceful 25-Second API Timeout
       const TIMEOUT_MS = 25000;
       let timerId: NodeJS.Timeout;
+
       const timeoutPromise = new Promise<ScrapedProduct[]>((_, reject) => {
         timerId = setTimeout(() => {
-          // Signal background threads instantly that the Orchestrator has jumped ship
           abortState.aborted = true;
-          reject(new Error("Global Scraper Queue Timeout: Aborted after 25s to save API response."));
+          reject(new Error("Global Aggregator Timeout: Aborted after 25s."));
         }, TIMEOUT_MS);
       });
 
       try {
-        // 🛡️ Promise.race forces the scraping to yield if the server queue is backed up
-        rawProducts = await Promise.race([
-          runScrapingPipeline(intent.clean_keyword, [
-            "Tokopedia", "Shopee"
-          ], abortState),
+        // 🚀 MENGGUNAKAN GOOGLE SHOPPING AGGREGATOR
+        // Kita tidak perlu mengirim daftar platform lagi karena Google sudah merangkum semuanya
+        rawProducts = await (Promise.race([
+          runScrapingPipeline(intent.clean_keyword, [], abortState),
           timeoutPromise
-        ]);
+        ]) as Promise<ScrapedProduct[]>);
       } finally {
-        clearTimeout(timerId!); // Destroy the timeout if the scraper wins the race early
+        clearTimeout(timerId!);
       }
     } catch (scrapeErr: any) {
-      console.warn("Orchestrator: Scraper Pipeline Fault -", scrapeErr.message);
-      pipelineError = scrapeErr.message || "Partial data fault during platform requests. Pipeline continues.";
+      console.warn("Orchestrator: Aggregator Pipeline Fault -", scrapeErr.message);
+      pipelineError = scrapeErr.message;
     }
 
-    // 3. IQR Mathematics Engine
+    // 3. IQR Mathematics Engine (Filter harga anomali)
     const anomalyFiltered = filterAnomalies(rawProducts);
 
-    // 4. ML Semantic TF-IDF + Cosine Clustering
+    // 4. ML Semantic TF-IDF + Cosine Clustering (Pengelompokan barang identik)
     const clusters = clusterProductsML(anomalyFiltered.cleanProducts);
 
-    // 5. Intelligent Decision Nodes
+    // 5. Intelligent Decision Nodes (Generasi ringkasan AI)
     const smartSummary = generateDecisionTreeSummary(anomalyFiltered.marketAnalytics, clusters);
 
     // 6. Safe Payload Construction
@@ -99,14 +99,18 @@ export async function GET(request: Request) {
       ...(pipelineError && { errors: pipelineError })
     };
 
-    // 🛡️ CACHE POISONING FIX: Hanya Cache jika tidak ada error DAN data barang (cluster) ada hasilnya
+    // 🛡️ CACHE POLICY: Simpan jika ada data dan tidak ada error fatal
     if (!pipelineError && clusters.length > 0) {
       cache.set(cacheKey, responsePayload);
     }
 
     return NextResponse.json({ source: 'live', data: responsePayload });
+
   } catch (fatals: any) {
     console.error("API Kernel Error:", fatals);
-    return NextResponse.json({ error: "Fatal Processing Fault", details: fatals.message }, { status: 500 });
+    return NextResponse.json({
+      error: "Fatal Processing Fault",
+      details: fatals.message
+    }, { status: 500 });
   }
 }

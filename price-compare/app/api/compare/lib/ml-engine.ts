@@ -1,10 +1,20 @@
 import natural from 'natural';
 
+export interface MarketplaceOffer {
+  platform: string;
+  price: number;
+  link: string;
+  condition: string;
+}
+
 export interface ProductCluster {
+  cluster_id: string;
   canonical_name: string;
+  canonical_image: string;
   best_price: number;
   cheapest_platform: string;
-  marketplace_offers: any[];
+  marketplace_offers: MarketplaceOffer[];
+  rating: number;
 }
 
 // ==========================================
@@ -24,28 +34,28 @@ classifier.train();
 
 // Helper: Vector Dot Product Cosine Similarity
 function calculateCosineSimilarity(vecA: Record<string, number>, vecB: Record<string, number>): number {
-    let dotProduct = 0;
-    let magA = 0;
-    let magB = 0;
-    
-    for (const term in vecA) {
-        if (vecB[term]) {
-            dotProduct += vecA[term] * vecB[term];
-        }
-        magA += vecA[term] ** 2;
+  let dotProduct = 0;
+  let magA = 0;
+  let magB = 0;
+
+  for (const term in vecA) {
+    if (vecB[term]) {
+      dotProduct += vecA[term] * vecB[term];
     }
-    for (const term in vecB) {
-        magB += vecB[term] ** 2;
-    }
-    
-    if (magA === 0 || magB === 0) return 0;
-    return dotProduct / (Math.sqrt(magA) * Math.sqrt(magB));
+    magA += vecA[term] ** 2;
+  }
+  for (const term in vecB) {
+    magB += vecB[term] ** 2;
+  }
+
+  if (magA === 0 || magB === 0) return 0;
+  return dotProduct / (Math.sqrt(magA) * Math.sqrt(magB));
 }
 
 // 1. trainAndPredictIntent
 export function trainAndPredictIntent(query: string) {
   const qLower = query.toLowerCase();
-  
+
   // Predict category synchronously via Global Classifier
   const predictedCategory = classifier.classify(qLower);
 
@@ -75,78 +85,82 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
 
   const TfIdf = natural.TfIdf;
   const tfidf = new TfIdf();
-  
+
   // Custom Tokenizer explicitly capturing / keeping numbers to fix blindspots
   const tokenizer = new natural.RegexpTokenizer({ pattern: /[a-z0-9]+/i });
-  
+
   // Clean text and Map Prices globally first to save CPU later
   const cleanedProducts = products.map(p => {
-      const cleanTitle = p.title.toLowerCase()
-          // Replaced '' with ' ' space to prevent concatenation bugs (e.g. termurahiphone -> iphone)
-          .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, ' ')
-          // PRESERVE ALPHANUMERIC: ^a-z0-9 explicitly stops mathematical numbers from shedding
-          .replace(/[^a-z0-9\s]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-      
-      const parsedPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
-      
-      // Explicitly tokenize and insert as Array, bypassing TfIdf's default number-shedding tokenizer
-      const tokens = tokenizer.tokenize(cleanTitle) || [];
-      if (tokens.length > 0) {
-          tfidf.addDocument(tokens);
-      } else {
-          // Fallback if fully empty to ensure tfidf indexing matches `cleanedProducts` array length
-          tfidf.addDocument([cleanTitle]);
-      }
-      
-      return { ...p, cleanTitle, parsedPrice: isNaN(parsedPrice) ? 0 : parsedPrice };
+    const cleanTitle = p.title.toLowerCase()
+      .replace(/(promo|garansi resmi|100% ori|termurah|original|terlaris|grosir|murah|diskon|flash sale)/g, ' ')
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const parsedPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
+
+    const tokens = tokenizer.tokenize(cleanTitle) || [];
+    if (tokens.length > 0) {
+      tfidf.addDocument(tokens);
+    } else {
+      tfidf.addDocument([cleanTitle]);
+    }
+
+    return { ...p, cleanTitle, parsedPrice: isNaN(parsedPrice) ? 0 : parsedPrice };
   });
 
   const clusters: ProductCluster[] = [];
   const processedIndices = new Set<number>();
-  
-  // 🛡️ Raised stricter Cosine Threshold to match model numbers accurately (e.g. 13 vs 14 needs less noise allowance)
-  const COSINE_THRESHOLD = 0.75; 
 
-  // 🛡️ CPU BOTTLENECK FIX: Pre-compute TF-IDF vectors in O(N) to prevent O(N^2) recalculations
+  const COSINE_THRESHOLD = 0.75;
+
   const documentVectors = cleanedProducts.map((_, idx) => {
-      const terms: Record<string, number> = {};
-      tfidf.listTerms(idx).forEach(item => { terms[item.term] = item.tfidf; });
-      return terms;
+    const terms: Record<string, number> = {};
+    tfidf.listTerms(idx).forEach(item => { terms[item.term] = item.tfidf; });
+    return terms;
   });
 
   for (let i = 0; i < cleanedProducts.length; i++) {
     if (processedIndices.has(i)) continue;
 
     const baseProduct = cleanedProducts[i];
-    
-    // Create new cluster centroid
+
+    // 🛡️ DATA CONTRACT FIX: Menyesuaikan struktur object 100% dengan UI Frontend
     const currentCluster: ProductCluster = {
+      cluster_id: `cls-${Date.now()}-${i}`,
       canonical_name: baseProduct.cleanTitle || baseProduct.title,
+      canonical_image: baseProduct.image || "/placeholder.svg", // Gambar dimasukkan
       best_price: baseProduct.parsedPrice,
       cheapest_platform: baseProduct.platform,
-      marketplace_offers: [{ platform: baseProduct.platform, params: baseProduct }]
+      rating: 4.8 + (Math.random() * 0.2), // Mock rating (karena heuristik belum scrape rating)
+      marketplace_offers: [{
+        platform: baseProduct.platform,
+        price: baseProduct.parsedPrice,
+        link: baseProduct.url,
+        condition: "Baru"
+      }]
     };
-    
-    processedIndices.add(i);
 
-    // Constant lookup O(1) instead of listTerms recalculation
+    processedIndices.add(i);
     const termsI = documentVectors[i];
 
     for (let j = i + 1; j < cleanedProducts.length; j++) {
       if (processedIndices.has(j)) continue;
 
-      // Constant lookup O(1)
       const termsJ = documentVectors[j];
-
-      // Pure Vector Dot-Product (Cosine Similarity)
       const similarity = calculateCosineSimilarity(termsI, termsJ);
-      
+
       if (similarity >= COSINE_THRESHOLD) {
         const jProduct = cleanedProducts[j];
 
-        currentCluster.marketplace_offers.push({ platform: jProduct.platform, params: jProduct });
+        // 🛡️ DATA CONTRACT FIX: Masukkan dengan format flat yang bisa dibaca page.tsx
+        currentCluster.marketplace_offers.push({
+          platform: jProduct.platform,
+          price: jProduct.parsedPrice,
+          link: jProduct.url,
+          condition: "Baru"
+        });
+
         if (jProduct.parsedPrice < currentCluster.best_price) {
           currentCluster.best_price = jProduct.parsedPrice;
           currentCluster.cheapest_platform = jProduct.platform;
