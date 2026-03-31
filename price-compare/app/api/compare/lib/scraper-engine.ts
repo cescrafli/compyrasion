@@ -119,6 +119,9 @@ export async function runScrapingPipeline(
 
   const scrapePlatform = async (platform: string): Promise<ScrapedProduct[]> => {
     
+    // 🛡️ GHOST PREVENTION: Don't even enter the queue if the orchestrator hung up
+    if (abortState?.aborted) return [];
+
     // 🛡️ OOM PROTECTION: Block execution thread here until a slot opens globally
     await acquireConcurrencySlot();
 

@@ -55,8 +55,9 @@ export async function GET(request: Request) {
     try {
        // Graceful 25-Second API Timeout Promise
        const TIMEOUT_MS = 25000;
+       let timerId: NodeJS.Timeout;
        const timeoutPromise = new Promise<ScrapedProduct[]>((_, reject) => {
-           setTimeout(() => {
+           timerId = setTimeout(() => {
                // Signal background threads instantly that the Orchestrator has jumped ship
                // This instantly prevents background promises from accumulating zombie loops
                abortState.aborted = true; 
@@ -73,6 +74,8 @@ export async function GET(request: Request) {
            ], abortState),
            timeoutPromise
        ]);
+       
+       clearTimeout(timerId!); // Destroy the timeout if the scraper wins the race early to prevent unhandled rejections
     } catch (scrapeErr: any) {
        console.warn("Orchestrator: Scraper Pipeline Fault -", scrapeErr.message);
        // Catch the timeout gracefully, proceeding down to the IQR & NLP mapping
