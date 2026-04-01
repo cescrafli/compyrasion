@@ -8,8 +8,7 @@ import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 const cache = new NodeCache({ stdTTL: 3600, maxKeys: 200 });
 
 // Rate Limiting Cache (TTL 60 detik)
-const rateLimitCache = new NodeCache({ stdTTL: 60, checkperiod: 60 });
-
+const rateLimitCache = new NodeCache({ stdTTL: 60, checkperiod: 60, maxKeys: 5000 });
 // Interface Payload untuk konsistensi kontrak data dengan Frontend
 interface ComparisonResponse {
   query_intent: {
@@ -37,8 +36,8 @@ export async function GET(request: Request) {
   const currentRequests = rateLimitCache.get<number>(ip) ?? 0;
 
   if (currentRequests >= 5) {
-    return NextResponse.json({ 
-      error: "Rate limit exceeded. Maximum 5 requests per minute per IP." 
+    return NextResponse.json({
+      error: "Rate limit exceeded. Maximum 5 requests per minute per IP."
     }, { status: 429, headers: { 'Retry-After': '60' } });
   }
 
@@ -53,7 +52,7 @@ export async function GET(request: Request) {
 
   // 🛡️ DDOS PAYLOAD RESTRICTION (Mencegah serangan bot eksekusi memori)
   if (q.length > 50) {
-      return NextResponse.json({ error: "Query exceeds maximum allowed length of 50 characters. Request Dropped." }, { status: 413 });
+    return NextResponse.json({ error: "Query exceeds maximum allowed length of 50 characters. Request Dropped." }, { status: 413 });
   }
 
   // 🛡️ CACHE POISONING FIX: Normalisasi input agar cache efisien

@@ -7,7 +7,7 @@ function filterBimodalNoise(parsedData: any[], prices: number[]) {
 
     let c1 = prices[0];
     let c2 = prices[prices.length - 1];
-    
+
     for (let i = 0; i < 5; i++) {
         let sum1 = 0, cnt1 = 0, sum2 = 0, cnt2 = 0;
         for (let p of prices) {
@@ -17,7 +17,7 @@ function filterBimodalNoise(parsedData: any[], prices: number[]) {
         if (cnt1) c1 = sum1 / cnt1;
         if (cnt2) c2 = sum2 / cnt2;
     }
-    
+
     // Jika rata-rata kluster bawah < 30% dari kluster atas (C2) -> ini aksesoris!
     if (c1 < c2 * 0.3 && c2 > 0) {
         const boundary = (c1 + c2) / 2;
@@ -28,17 +28,17 @@ function filterBimodalNoise(parsedData: any[], prices: number[]) {
             validPrices: cleanData.map(p => p.parsedPrice).sort((a, b) => a - b)
         };
     }
-    
+
     return { cleanData: parsedData, excludedCount: 0, validPrices: prices };
 }
 
 // Helper: Filter IQR per Grup Varian
 function filterGroupAnomalies(parsedGroupedData: any[]) {
     const initialPrices = parsedGroupedData.map(p => p.parsedPrice).sort((a, b) => a - b);
-    
+
     // Bimodal Noise Pre-Filtration
     const { cleanData: kmeansFilteredData, excludedCount: bimodalExcluded, validPrices: prices } = filterBimodalNoise(parsedGroupedData, initialPrices);
-    
+
     // EDGE CASE: Jika item terlalu sedikit, tidak bisa IQR
     if (prices.length < 4) {
         return { cleanGroup: parsedGroupedData, excludedGroupCount: 0 };
@@ -86,9 +86,15 @@ export function filterAnomalies(rawProducts: any[]) {
     const groups: Record<string, any[]> = {};
     for (const p of parsedData) {
         const title = (p.title || p.name || "").toString();
-        const match = title.match(/\b(\d+\s*(?:gb|tb|mb))\b/i);
-        const variantKey = match ? match[1].toUpperCase().replace(/\s+/g, '') : "DEFAULT";
-        
+
+        // Ekstrak SEMUA kapasitas memori dari judul (mengatasi bug varian ganda seperti "8GB 512GB")
+        const matches = Array.from(title.matchAll(/\b(\d+\s*(?:gb|tb|mb))\b/gi));
+
+        // Gabungkan dengan underscore (Contoh: "8GB_512GB")
+        const variantKey = matches.length > 0
+            ? matches.map(m => m[1].toUpperCase().replace(/\s+/g, '')).join('_')
+            : "DEFAULT";
+
         if (!groups[variantKey]) groups[variantKey] = [];
         groups[variantKey].push(p);
     }
@@ -106,7 +112,7 @@ export function filterAnomalies(rawProducts: any[]) {
     // Kalkulasi agregat harga pasar gabungan (Global Analytics)
     let sum = 0;
     const validPrices: number[] = [];
-    
+
     for (const p of allCleanProducts) {
         sum += p.parsedPrice;
         validPrices.push(p.parsedPrice);
@@ -151,10 +157,10 @@ export function generateDecisionTreeSummary(analytics: any, clusters: ProductClu
         if (discountRatio > 0.40) {
             const percentageRounded = Math.round(discountRatio * 100);
             if ((mostPopularCluster.rating || 4.0) < 4.8 || mostPopularCluster.marketplace_offers.length < 3) {
-                 return {
-                     summary: `WASPADA: Harga di ${platform} terdeteksi sebagai ANOMALI KRITIS (${percentageRounded}% lebih murah dari ekuilibrium pasar). Probabilitas tinggi barang palsu (HDC), aksesoris, atau penipuan.`,
-                     buy_recommendation: "Avoid / Scam Risk"
-                 };
+                return {
+                    summary: `WASPADA: Harga di ${platform} terdeteksi sebagai ANOMALI KRITIS (${percentageRounded}% lebih murah dari ekuilibrium pasar). Probabilitas tinggi barang palsu (HDC), aksesoris, atau penipuan.`,
+                    buy_recommendation: "Avoid / Scam Risk"
+                };
             }
         }
 
