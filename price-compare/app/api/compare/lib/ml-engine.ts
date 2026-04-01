@@ -68,14 +68,28 @@ export function trainAndPredictIntent(query: string) {
   // Predict category synchronously via Global Classifier
   const predictedCategory = classifier.classify(qLower);
 
-  // Extract budget using pure algorithmic RegExp
+  // 🛡️ PERBAIKAN: Extract budget menggunakan Float Parsing
   let budget = null;
-  const budgetMatch = qLower.match(/(di bawah|budget|max|maksimal) (\d+([.,]\d+)?\s*(ribu|juta|jt)?|\d+)/i);
+  // Regex diperbarui untuk menangkap grup angka (termasuk desimal) dan grup kata satuan secara presisi
+  const budgetMatch = qLower.match(/(di bawah|budget|max|maksimal)\s+(\d+(?:[.,]\d+)?)\s*(ribu|juta|jt)?/i);
+
   if (budgetMatch) {
-    let numStr = budgetMatch[2].replace(/[.,a-z\s]/gi, ''); // Membersihkan sisa huruf dari angka
-    if (budgetMatch[4] === 'ribu' || (numStr.length <= 3 && budgetMatch[4] == null)) numStr += '000';
-    if (budgetMatch[4] === 'juta' || budgetMatch[4] === 'jt') numStr += '000000';
-    budget = parseInt(numStr, 10);
+    // Ganti koma dengan titik agar terbaca sebagai float (misal: "2,5" -> "2.5")
+    let baseNumber = parseFloat(budgetMatch[2].replace(',', '.'));
+    let multiplier = 1;
+    const unit = budgetMatch[3];
+
+    if (unit === 'juta' || unit === 'jt') {
+      multiplier = 1000000;
+    } else if (unit === 'ribu') {
+      multiplier = 1000;
+    } else if (baseNumber <= 999 && !unit) {
+      // Asumsi heuristik: Jika orang ketik "budget 500" (tanpa unit), diasumsikan 500 ribu
+      multiplier = 1000;
+    }
+
+    // Gunakan Math.round untuk menghindari bug angka desimal JavaScript (misal: 2.5 * 1000000 = 2500000.00000001)
+    budget = Math.round(baseNumber * multiplier);
   }
 
   // Clean keyword
