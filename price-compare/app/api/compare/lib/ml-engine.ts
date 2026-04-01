@@ -1,4 +1,5 @@
 import natural from 'natural';
+import trainingData from './dataset.json';
 
 export interface MarketplaceOffer {
   platform: string;
@@ -22,14 +23,10 @@ export interface ProductCluster {
 // ==========================================
 const classifier = new natural.BayesClassifier();
 
-// Perform Memory-bound Singleton Training
-classifier.addDocument("sepatu lari nike adidas puma kets", "Fashion");
-classifier.addDocument("baju celana kaos kemeja jaket topi", "Fashion");
-classifier.addDocument("laptop gaming asus rog lenovo legion acer", "Computing");
-classifier.addDocument("pc rakitan vga rtx nvidia radeon cpu prosesor monitor", "Computing");
-classifier.addDocument("iphone 13 pro max samsung galaxy xiaomi redmi oppo", "Mobile Devices");
-classifier.addDocument("charger case kabel data powerbank handphone hp tablet", "Mobile Devices");
-classifier.addDocument("kulkas mesin cuci tv televisi ac kipas dispenser", "Home Appliances");
+// Load dataset dari file external JSON (Otomatis dibaca saat inisialisasi)
+trainingData.forEach((data: { text: string; category: string }) => {
+  classifier.addDocument(data.text, data.category);
+});
 classifier.train();
 
 // Helper: Vector Dot Product Cosine Similarity

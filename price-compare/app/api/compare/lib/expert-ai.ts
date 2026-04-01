@@ -32,37 +32,16 @@ function filterBimodalNoise(parsedData: any[], prices: number[]) {
     return { cleanData: parsedData, excludedCount: 0, validPrices: prices };
 }
 
-// 1. filterAnomalies (Expert Math System - IQR)
-export function filterAnomalies(rawProducts: any[]) {
-    if (!rawProducts || rawProducts.length === 0) {
-        return {
-            cleanProducts: [],
-            marketAnalytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, items_excluded_count: 0 }
-        };
-    }
-
-    // Single pre-parse array to save loops
-    const parsedData = rawProducts.map(p => {
-        const pPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
-        return { ...p, parsedPrice: isNaN(pPrice) ? 0 : pPrice };
-    }).filter(p => p.parsedPrice > 0);
-
-    const initialPrices = parsedData.map(p => p.parsedPrice).sort((a, b) => a - b);
+// Helper: Filter IQR per Grup Varian
+function filterGroupAnomalies(parsedGroupedData: any[]) {
+    const initialPrices = parsedGroupedData.map(p => p.parsedPrice).sort((a, b) => a - b);
     
-    const { cleanData: kmeansFilteredData, excludedCount: bimodalExcluded, validPrices: prices } = filterBimodalNoise(parsedData, initialPrices);
-    let avgPrice = 0;
-
-    // EDGE CASE: Arrays < 4 cannot statistically support IQR properly
+    // Bimodal Noise Pre-Filtration
+    const { cleanData: kmeansFilteredData, excludedCount: bimodalExcluded, validPrices: prices } = filterBimodalNoise(parsedGroupedData, initialPrices);
+    
+    // EDGE CASE: Jika item terlalu sedikit, tidak bisa IQR
     if (prices.length < 4) {
-        if (prices.length > 0) avgPrice = prices.reduce((a, b) => a + b, 0) / prices.length;
-        return {
-            cleanProducts: parsedData,
-            marketAnalytics: {
-                average_price: Math.round(avgPrice),
-                market_range: { lowest: prices[0] || 0, highest: prices[prices.length - 1] || 0 },
-                items_excluded_count: 0 // Bypassed
-            }
-        };
+        return { cleanGroup: parsedGroupedData, excludedGroupCount: 0 };
     }
 
     const q1Index = Math.floor(prices.length * 0.25);
@@ -74,33 +53,77 @@ export function filterAnomalies(rawProducts: any[]) {
     const lowerBound = Math.max(0, q1 - 1.5 * iqr);
     const upperBound = q3 + 1.5 * iqr;
 
-    const cleanProducts: any[] = [];
-    let excludedCount = bimodalExcluded; // Tambahkan yang dibuang oleh K-Means
-    let sum = 0;
+    const cleanGroup: any[] = [];
+    let excludedGroupCount = bimodalExcluded;
 
     for (const product of kmeansFilteredData) {
         if (product.parsedPrice >= lowerBound && product.parsedPrice <= upperBound) {
-            cleanProducts.push(product);
-            sum += product.parsedPrice;
+            cleanGroup.push(product);
         } else {
-            excludedCount++;
+            excludedGroupCount++;
         }
     }
 
-    avgPrice = cleanProducts.length > 0 ? sum / cleanProducts.length : 0;
+    return { cleanGroup, excludedGroupCount };
+}
 
-    const validPrices = cleanProducts.map(p => p.parsedPrice);
+// 1. filterAnomalies (Expert Math System - Grouped IQR)
+export function filterAnomalies(rawProducts: any[]) {
+    if (!rawProducts || rawProducts.length === 0) {
+        return {
+            cleanProducts: [],
+            marketAnalytics: { average_price: 0, market_range: { lowest: 0, highest: 0 }, items_excluded_count: 0 }
+        };
+    }
 
-    // 🛡️ V8 SPREAD OPERATOR FIX: Menggunakan reduce() untuk mencegah Maximum Call Stack Exceeded pada array raksasa
+    // Parse harga
+    const parsedData = rawProducts.map(p => {
+        const pPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
+        return { ...p, parsedPrice: isNaN(pPrice) ? 0 : pPrice };
+    }).filter(p => p.parsedPrice > 0);
+
+    // 🛡️ Grouping Produk Berdasarkan Varian Memori (Misal: 128GB, 256GB, 1TB)
+    const groups: Record<string, any[]> = {};
+    for (const p of parsedData) {
+        const title = (p.title || p.name || "").toString();
+        const match = title.match(/\b(\d+\s*(?:gb|tb|mb))\b/i);
+        const variantKey = match ? match[1].toUpperCase().replace(/\s+/g, '') : "DEFAULT";
+        
+        if (!groups[variantKey]) groups[variantKey] = [];
+        groups[variantKey].push(p);
+    }
+
+    let allCleanProducts: any[] = [];
+    let totalExcludedCount = 0;
+
+    // Terapkan deteksi anomali pada tiap grup varian secara terpisah
+    for (const variantKey in groups) {
+        const { cleanGroup, excludedGroupCount } = filterGroupAnomalies(groups[variantKey]);
+        allCleanProducts.push(...cleanGroup);
+        totalExcludedCount += excludedGroupCount;
+    }
+
+    // Kalkulasi agregat harga pasar gabungan (Global Analytics)
+    let sum = 0;
+    const validPrices: number[] = [];
+    
+    for (const p of allCleanProducts) {
+        sum += p.parsedPrice;
+        validPrices.push(p.parsedPrice);
+    }
+
+    const avgPrice = allCleanProducts.length > 0 ? sum / allCleanProducts.length : 0;
+
+    // V8 Spread Operator Fix
     const lowest = validPrices.length > 0 ? validPrices.reduce((min, p) => p < min ? p : min, validPrices[0]) : 0;
     const highest = validPrices.length > 0 ? validPrices.reduce((max, p) => p > max ? p : max, validPrices[0]) : 0;
 
     return {
-        cleanProducts,
+        cleanProducts: allCleanProducts,
         marketAnalytics: {
             average_price: Math.round(avgPrice),
             market_range: { lowest, highest },
-            items_excluded_count: excludedCount
+            items_excluded_count: totalExcludedCount
         }
     };
 }

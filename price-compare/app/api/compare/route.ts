@@ -7,6 +7,9 @@ import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 // Memory Caching (1 Jam) dengan V8 Exhaustion Guard (Max 200 Indeks)
 const cache = new NodeCache({ stdTTL: 3600, maxKeys: 200 });
 
+// Rate Limiting Cache (TTL 60 detik)
+const rateLimitCache = new NodeCache({ stdTTL: 60, checkperiod: 60 });
+
 // Interface Payload untuk konsistensi kontrak data dengan Frontend
 interface ComparisonResponse {
   query_intent: {
@@ -29,6 +32,18 @@ interface ComparisonResponse {
 }
 
 export async function GET(request: Request) {
+  // 🛡️ RATE LIMITING (Max 5 request per menit per IP)
+  const ip = request.headers.get('x-forwarded-for') ?? request.headers.get('x-real-ip') ?? 'unknown_ip';
+  const currentRequests = rateLimitCache.get<number>(ip) ?? 0;
+
+  if (currentRequests >= 5) {
+    return NextResponse.json({ 
+      error: "Rate limit exceeded. Maximum 5 requests per minute per IP." 
+    }, { status: 429, headers: { 'Retry-After': '60' } });
+  }
+
+  rateLimitCache.set(ip, currentRequests + 1);
+
   const { searchParams } = new URL(request.url);
   const q = searchParams.get('q');
 

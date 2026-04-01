@@ -1,0 +1,12 @@
+{
+  "rawLength": 0,
+  "cleanLength": 0,
+  "marketAnalytics": {
+    "average_price": 0,
+    "market_range": {
+      "lowest": 0,
+      "highest": 0
+    },
+    "items_excluded_count": 0
+  }
+}

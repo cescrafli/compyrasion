@@ -1,0 +1,30 @@
+[
+  {
+    "text": "sepatu lari nike adidas puma kets",
+    "category": "Fashion"
+  },
+  {
+    "text": "baju celana kaos kemeja jaket topi",
+    "category": "Fashion"
+  },
+  {
+    "text": "laptop gaming asus rog lenovo legion acer",
+    "category": "Computing"
+  },
+  {
+    "text": "pc rakitan vga rtx nvidia radeon cpu prosesor monitor",
+    "category": "Computing"
+  },
+  {
+    "text": "iphone 13 pro max samsung galaxy xiaomi redmi oppo",
+    "category": "Mobile Devices"
+  },
+  {
+    "text": "charger case kabel data powerbank handphone hp tablet",
+    "category": "Mobile Devices"
+  },
+  {
+    "text": "kulkas mesin cuci tv televisi ac kipas dispenser",
+    "category": "Home Appliances"
+  }
+]

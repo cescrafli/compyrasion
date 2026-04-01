@@ -174,12 +174,22 @@ export async function runScrapingPipeline(
             for (const card of cards) {
                 const text = card.textContent || (card as HTMLElement).innerText || '';
 
-                if (!text.includes('Rp')) continue;
+                // Bersihkan whitespace (termasuk non-breaking space & newline yang sering muncul dari DOM bersarang)
+                const cleanText = text.replace(/\s+/g, '');
 
-                // 1. Ekstrak Harga
-                const priceMatch = text.replace(/\s+/g, '').match(/Rp\.?([\d.,]+)/i);
+                // Cek kemungkinan ada string harga (Rp, Rp., IDR)
+                if (!/(Rp|IDR)/i.test(cleanText)) continue;
+
+                // 1. Ekstrak Harga yang stabil dan tahan banting
+                // Karena spasi sudah dibersihkan, formatnya pasti menempel seperti Rp10.000 atau IDR10.000
+                const priceMatch = cleanText.match(/(?:Rp\.?|IDR)([\d.,]+)/i);
                 if (!priceMatch) continue;
-                const price = parseInt(priceMatch[1].replace(/[^0-9]/g, ''), 10);
+
+                // Hapus 1-2 digit desimal di akhir string harga (seperti ,00 atau .50) untuk mencegah bug mark-up 100x lipat
+                let numStr = priceMatch[1].replace(/[,.]\d{1,2}$/, '');
+                
+                // Bersihkan semua titik dan koma pemisah ribuan agar parser bisa mengubahnya menjadi Integer murni
+                const price = parseInt(numStr.replace(/[^0-9]/g, ''), 10);
                 if (isNaN(price) || price === 0) continue;
 
                 // 2. Ekstrak Judul (Mencari Tag H3)
