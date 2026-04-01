@@ -25,7 +25,7 @@ const BROWSER_TTL_MS = 60 * 60 * 1000; // 1 Jam batasan maksimal agar vRAM Chrom
 
 const isBrowserAlive = async (): Promise<boolean> => {
     if (!globalBrowserInstance) return false;
-    
+
     // 🛡️ 1. TTL Check Validation (Memory Leak Protection)
     if (Date.now() - browserCreatedAt > BROWSER_TTL_MS) {
         console.warn("🔄 [TTL] Browser Instance melewati batas usia 1 Jam. Memaksa Restart...");
@@ -47,12 +47,12 @@ const getBrowserInstance = async () => {
     if (globalBrowserInstance) {
         const alive = await isBrowserAlive();
         if (!alive) {
-            try { await globalBrowserInstance.close().catch(()=>{}); } catch(e) {}
-            try { 
+            try { await globalBrowserInstance.close().catch(() => { }); } catch (e) { }
+            try {
                 const process = globalBrowserInstance.process();
                 if (process) process.kill('SIGKILL');
-            } catch(e) {}
-            
+            } catch (e) { }
+
             globalBrowserInstance = null;
             browserLaunchPromise = null;
         }
@@ -144,8 +144,22 @@ export async function runScrapingPipeline(
 
         console.log(`🌐 [Aggregator] Mencari di Google Shopping: "${cleanKeyword}"...`);
 
-        // Gunakan networkidle2 agar data produk sempat ter-load
-        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 20000 });
+        // 🛡️ PERBAIKAN 1: Gunakan domcontentloaded agar lebih responsif terhadap pelacak Google
+        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+
+        // 🛡️ PERBAIKAN 2: Tunggu elemen produk muncul secara spesifik (maksimal 5 detik)
+        try {
+            await page.waitForSelector('.sh-dgr__content, .sh-dlr__list-result, div[data-docid]', { timeout: 5000 });
+        } catch (e) {
+            console.warn(`⚠️ [Aggregator] Selector produk lambat atau tidak ditemukan untuk: "${cleanKeyword}".`);
+        }
+
+        // 🛡️ PERBAIKAN 3: Cegah Ghost Tab! Berhenti jika API route.ts sudah timeout di background
+        if (abortState?.aborted) {
+            console.warn(`🛑 [Aggregator] Dibatalkan paksa oleh Orchestrator (Timeout 25s) untuk: "${cleanKeyword}". Mencegah memory leak.`);
+            await page.close().catch(() => { });
+            return []; // Keluar dari fungsi secepat mungkin
+        }
 
         // Scroll untuk memicu lazy load gambar
         await page.evaluate(() => window.scrollBy(0, 1000));
