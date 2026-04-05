@@ -39,15 +39,21 @@ function filterGroupAnomalies(parsedGroupedData: any[]) {
     // Bimodal Noise Pre-Filtration
     const { cleanData: kmeansFilteredData, excludedCount: bimodalExcluded, validPrices: prices } = filterBimodalNoise(parsedGroupedData, initialPrices);
 
-    // EDGE CASE: Jika item terlalu sedikit, tidak bisa IQR
+    // 🛡️ EDGE CASE FIX: Jika item terlalu sedikit, tidak bisa IQR — langsung return
     if (prices.length < 4) {
-        return { cleanGroup: parsedGroupedData, excludedGroupCount: 0 };
+        return { cleanGroup: kmeansFilteredData, excludedGroupCount: bimodalExcluded };
     }
 
-    const q1Index = Math.floor(prices.length * 0.25);
-    const q3Index = Math.floor(prices.length * 0.75);
+    // 🛡️ SAFE QUARTILE INDEX: Gunakan Math.max/Math.min agar tidak undefined atau out-of-bounds
+    const q1Index = Math.max(0, Math.min(Math.floor(prices.length * 0.25), prices.length - 1));
+    const q3Index = Math.max(0, Math.min(Math.floor(prices.length * 0.75), prices.length - 1));
     const q1 = prices[q1Index];
     const q3 = prices[q3Index];
+
+    // Guard: if q1 and q3 are somehow the same (e.g. all items have equal price), skip IQR filtering
+    if (q1 === undefined || q3 === undefined || q1 === q3) {
+        return { cleanGroup: kmeansFilteredData, excludedGroupCount: bimodalExcluded };
+    }
 
     const iqr = q3 - q1;
     const lowerBound = Math.max(0, q1 - 1.5 * iqr);
@@ -88,11 +94,11 @@ export function filterAnomalies(rawProducts: any[]) {
         const title = (p.title || p.name || "").toString();
 
         // Ekstrak SEMUA kapasitas memori dari judul (mengatasi bug varian ganda seperti "8GB 512GB")
-        const matches = Array.from(title.matchAll(/\b(\d+\s*(?:gb|tb|mb))\b/gi));
+        const matches: RegExpMatchArray[] = Array.from(title.matchAll(/\b(\d+\s*(?:gb|tb|mb))\b/gi));
 
         // Gabungkan dengan underscore (Contoh: "8GB_512GB")
         const variantKey = matches.length > 0
-            ? matches.map(m => m[1].toUpperCase().replace(/\s+/g, '')).join('_')
+            ? matches.map((m: RegExpMatchArray) => m[1].toUpperCase().replace(/\s+/g, '')).join('_')
             : "DEFAULT";
 
         if (!groups[variantKey]) groups[variantKey] = [];
@@ -134,20 +140,30 @@ export function filterAnomalies(rawProducts: any[]) {
     };
 }
 
-// 2. generateDecisionTreeSummary
+// 2. generateDecisionTreeSummary (WEIGHTED SCORING)
+/**
+ * Selects the "best" cluster using a weighted score formula:
+ *   Score = (Number of Items) × (Average TF-IDF Cosine Similarity within the cluster)
+ * 
+ * This prevents clusters with many low-quality matches from dominating over
+ * smaller but tighter clusters with high semantic similarity.
+ */
 export function generateDecisionTreeSummary(analytics: any, clusters: ProductCluster[]) {
     if (clusters.length === 0) {
         return { summary: "Sistem Pakar: Tidak ada data valid yang memenuhi bobot kluster atau anomali IQR.", buy_recommendation: "Wait" };
     }
 
-    // Select the cluster with the MOST MARKETPLACE OFFERS
-    const mostPopularCluster = clusters.reduce((prev, current) => {
-        return (prev.marketplace_offers.length > current.marketplace_offers.length) ? prev : current;
+    // 🛡️ WEIGHTED SCORING: Score = itemCount × avgSimilarity
+    // Menggantikan seleksi murni berdasarkan jumlah item terbanyak
+    const mostRelevantCluster = clusters.reduce((prev, current) => {
+        const prevScore = prev.marketplace_offers.length * (prev.avg_similarity || 1.0);
+        const currentScore = current.marketplace_offers.length * (current.avg_similarity || 1.0);
+        return currentScore > prevScore ? current : prev;
     });
 
-    const bestPrice = mostPopularCluster.best_price;
+    const bestPrice = mostRelevantCluster.best_price;
     const avgPrice = analytics.average_price;
-    const platform = mostPopularCluster.cheapest_platform;
+    const platform = mostRelevantCluster.cheapest_platform;
 
     // Node 1: Evaluation
     if (avgPrice > 0) {
@@ -156,7 +172,7 @@ export function generateDecisionTreeSummary(analytics: any, clusters: ProductClu
         // 🛡️ SCAM DECISION GATE (Diskon Ekstrem)
         if (discountRatio > 0.40) {
             const percentageRounded = Math.round(discountRatio * 100);
-            if ((mostPopularCluster.rating || 4.0) < 4.8 || mostPopularCluster.marketplace_offers.length < 3) {
+            if ((mostRelevantCluster.rating || 4.0) < 4.8 || mostRelevantCluster.marketplace_offers.length < 3) {
                 return {
                     summary: `WASPADA: Harga di ${platform} terdeteksi sebagai ANOMALI KRITIS (${percentageRounded}% lebih murah dari ekuilibrium pasar). Probabilitas tinggi barang palsu (HDC), aksesoris, atau penipuan.`,
                     buy_recommendation: "Avoid / Scam Risk"
@@ -167,7 +183,7 @@ export function generateDecisionTreeSummary(analytics: any, clusters: ProductClu
         if (discountRatio > 0.10) {
             const percentageRounded = Math.round(discountRatio * 100);
             return {
-                summary: `Evaluasi Pakar: Temuan kejanggalan positif di ${platform}. Item '${mostPopularCluster.canonical_name}' terukur ${percentageRounded}% lebih murah dari ekuilibrium IQR. Titik beli sangat optimal.`,
+                summary: `Evaluasi Pakar: Temuan kejanggalan positif di ${platform}. Item '${mostRelevantCluster.canonical_name}' terukur ${percentageRounded}% lebih murah dari ekuilibrium IQR. Titik beli sangat optimal.`,
                 buy_recommendation: "Buy Now"
             };
         } else if (discountRatio > 0) {

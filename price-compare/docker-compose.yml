@@ -1,0 +1,17 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      - PUPPETEER_EXECUTABLE_PATH=/usr/bin/google-chrome-stable
+    restart: unless-stopped
+    # Puppeteer requires shared memory for Chromium
+    shm_size: "1gb"
+    # Security: drop all capabilities then add only what Chromium needs
+    cap_add:
+      - SYS_ADMIN

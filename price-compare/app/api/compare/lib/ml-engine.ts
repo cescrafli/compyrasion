@@ -1,4 +1,6 @@
 import natural from 'natural';
+import * as fs from 'fs';
+import * as path from 'path';
 import trainingData from './dataset.json';
 
 export interface MarketplaceOffer {
@@ -16,21 +18,69 @@ export interface ProductCluster {
   cheapest_platform: string;
   marketplace_offers: MarketplaceOffer[];
   rating: number;
+  /** Average cosine similarity of items within this cluster (used for weighted scoring) */
+  avg_similarity: number;
 }
 
 // ==========================================
-// GLOBALS: Instantiating and Training Singleton Classifier
+// GLOBALS: Lazy-Loaded Classifier Singleton
 // ==========================================
-const classifier = new natural.BayesClassifier();
+let classifier: natural.BayesClassifier | null = null;
+let classifierLoading: Promise<natural.BayesClassifier> | null = null;
 
-// Load dataset dari file external JSON (Otomatis dibaca saat inisialisasi)
-trainingData.forEach((data: { text: string; category: string }) => {
-  classifier.addDocument(data.text, data.category);
-});
-classifier.train();
+const CLASSIFIER_PATH = path.join(__dirname, 'classifier.json');
+
+/**
+ * Loads the pre-trained classifier from classifier.json (fast path).
+ * Falls back to in-memory training if the JSON file doesn't exist (dev/first-run).
+ */
+function getClassifier(): Promise<natural.BayesClassifier> {
+  // Already loaded — return immediately
+  if (classifier) return Promise.resolve(classifier);
+
+  // Loading in progress (another request triggered it) — return same promise
+  if (classifierLoading) return classifierLoading;
+
+  classifierLoading = new Promise<natural.BayesClassifier>((resolve) => {
+    // Fast path: load pre-trained JSON
+    if (fs.existsSync(CLASSIFIER_PATH)) {
+      try {
+        const raw = fs.readFileSync(CLASSIFIER_PATH, 'utf-8');
+        const restored = natural.BayesClassifier.restore(JSON.parse(raw));
+        classifier = restored;
+        console.log('⚡ [ML] Classifier loaded from pre-trained JSON (zero cold-start)');
+        resolve(classifier);
+        return;
+      } catch (err) {
+        console.warn('⚠️ [ML] Failed to restore classifier.json, falling back to training:', err);
+      }
+    }
+
+    // Fallback: train in-memory (cold start)
+    console.warn('🐢 [ML] classifier.json not found — training in-memory (cold start)...');
+    const freshClassifier = new natural.BayesClassifier();
+    trainingData.forEach((data: { text: string; category: string }) => {
+      freshClassifier.addDocument(data.text, data.category);
+    });
+    freshClassifier.train();
+    classifier = freshClassifier;
+
+    // Attempt to persist for future fast loads
+    try {
+      fs.writeFileSync(CLASSIFIER_PATH, JSON.stringify(freshClassifier), 'utf-8');
+      console.log('💾 [ML] Classifier auto-saved to classifier.json for next startup');
+    } catch {
+      // Non-fatal: read-only filesystem (e.g. Docker without volume mount)
+    }
+
+    resolve(classifier);
+  });
+
+  return classifierLoading;
+}
 
 // Helper: Vector Dot Product Cosine Similarity
-function calculateCosineSimilarity(vecA: Record<string, number>, vecB: Record<string, number>): number {
+export function calculateCosineSimilarity(vecA: Record<string, number>, vecB: Record<string, number>): number {
   let dotProduct = 0;
   let magA = 0;
   let magB = 0;
@@ -58,12 +108,13 @@ function sanitizeProductTitle(title: string): string {
     .trim();
 }
 
-// 1. trainAndPredictIntent
-export function trainAndPredictIntent(query: string) {
+// 1. trainAndPredictIntent (now async — loads classifier lazily)
+export async function trainAndPredictIntent(query: string) {
+  const clf = await getClassifier();
   const qLower = query.toLowerCase();
 
-  // Predict category synchronously via Global Classifier
-  const predictedCategory = classifier.classify(qLower);
+  // Predict category via loaded classifier
+  const predictedCategory = clf.classify(qLower);
 
   // 🛡️ PERBAIKAN: Extract budget menggunakan Float Parsing
   let budget = null;
@@ -80,6 +131,10 @@ export function trainAndPredictIntent(query: string) {
       multiplier = 1000000;
     } else if (unit === 'ribu') {
       multiplier = 1000;
+    } else if (baseNumber > 999 && !unit) {
+      // 🛡️ FIX: Jika user mengetik angka utuh tanpa satuan (misal "15000000"),
+      // asumsikan itu angka Rupiah mentah — multiplier tetap 1
+      multiplier = 1;
     } else if (baseNumber <= 999 && !unit) {
       // Asumsi heuristik: Jika orang ketik "budget 500" (tanpa unit), diasumsikan 500 ribu
       multiplier = 1000;
@@ -145,6 +200,9 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
 
     const baseProduct = cleanedProducts[i];
 
+    // Track similarity scores for weighted scoring
+    const similarityScores: number[] = [];
+
     // 🛡️ DATA CONTRACT FIX: Menyesuaikan struktur object 100% dengan UI Frontend
     const currentCluster: ProductCluster = {
       cluster_id: `cls-${Date.now()}-${i}`,
@@ -153,6 +211,7 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
       best_price: baseProduct.parsedPrice,
       cheapest_platform: baseProduct.platform,
       rating: 4.8 + (Math.random() * 0.2), // Mock rating (karena heuristik belum scrape rating)
+      avg_similarity: 1.0, // Base item has perfect self-similarity
       marketplace_offers: [{
         platform: baseProduct.platform,
         price: baseProduct.parsedPrice,
@@ -172,6 +231,7 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
 
       if (similarity >= COSINE_THRESHOLD) {
         const jProduct = cleanedProducts[j];
+        similarityScores.push(similarity);
 
         // 🛡️ DATA CONTRACT FIX: Masukkan dengan format flat yang bisa dibaca page.tsx
         currentCluster.marketplace_offers.push({
@@ -188,6 +248,11 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
         processedIndices.add(j);
       }
     }
+
+    // Compute average similarity for this cluster
+    // Base item contributes 1.0 (self-similarity), plus all matched items
+    const totalSimilarity = 1.0 + similarityScores.reduce((sum, s) => sum + s, 0);
+    currentCluster.avg_similarity = totalSimilarity / currentCluster.marketplace_offers.length;
 
     clusters.push(currentCluster);
   }

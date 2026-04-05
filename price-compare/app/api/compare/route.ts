@@ -51,8 +51,8 @@ export async function GET(request: Request) {
   }
 
   // 🛡️ DDOS PAYLOAD RESTRICTION (Mencegah serangan bot eksekusi memori)
-  if (q.length > 50) {
-    return NextResponse.json({ error: "Query exceeds maximum allowed length of 50 characters. Request Dropped." }, { status: 413 });
+  if (q.length > 120) {
+    return NextResponse.json({ error: "Query exceeds maximum allowed length of 120 characters. Request Dropped." }, { status: 413 });
   }
 
   // 🛡️ CACHE POISONING FIX: Normalisasi input agar cache efisien
@@ -64,8 +64,8 @@ export async function GET(request: Request) {
   }
 
   try {
-    // 1. Natural Language Intent Routing (Offline Classifier)
-    const intent = trainAndPredictIntent(q);
+    // 1. Natural Language Intent Routing (Offline Classifier — Lazy Loaded)
+    const intent = await trainAndPredictIntent(q);
 
     let rawProducts: ScrapedProduct[] = [];
     let pipelineError: string | undefined = undefined;

@@ -1,6 +1,6 @@
 import puppeteer from 'puppeteer-extra';
+import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
-const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 puppeteer.use(StealthPlugin());
 
 export interface ScrapedProduct {
@@ -133,25 +133,19 @@ export async function runScrapingPipeline(
     try {
         page = await browser.newPage();
 
-        // Identitas Manusia
-        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36');
-        await page.setExtraHTTPHeaders({
-            'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7'
-        });
-
         // Target Google Shopping Indonesia
         const targetUrl = `https://www.google.com/search?tbm=shop&q=${encodeURI(cleanKeyword)}&hl=id&gl=id`;
 
         console.log(`🌐 [Aggregator] Mencari di Google Shopping: "${cleanKeyword}"...`);
 
-        // 🛡️ PERBAIKAN 1: Gunakan domcontentloaded agar lebih responsif terhadap pelacak Google
-        await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+        // 🛡️ Gunakan networkidle2 agar elemen lazy-load sempat muncul
+        await page.goto(targetUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // 🛡️ PERBAIKAN 2: Tunggu elemen produk muncul secara spesifik (maksimal 5 detik)
+        // 🛡️ Tunggu elemen produk muncul secara spesifik (maksimal 10 detik)
         try {
-            await page.waitForSelector('.sh-dgr__content, .sh-dlr__list-result, div[data-docid]', { timeout: 5000 });
+            await page.waitForSelector('g-inner-card, .sh-dgr__content, .sh-dlr__list-result', { timeout: 10000 });
         } catch (e) {
-            console.warn(`⚠️ [Aggregator] Selector produk lambat atau tidak ditemukan untuk: "${cleanKeyword}".`);
+            console.warn(`⚠️ [Aggregator] Selector produk lambat atau tidak ditemukan untuk: "${cleanKeyword}". Mencoba paksa ekstraksi...`);
         }
 
         // 🛡️ PERBAIKAN 3: Cegah Ghost Tab! Berhenti jika API route.ts sudah timeout di background
@@ -168,58 +162,73 @@ export async function runScrapingPipeline(
         const scrapedResults = await page.evaluate(() => {
             const extracted: ScrapedProduct[] = [];
 
-            // Mencari container produk Google (Selector ini sangat stabil)
-            const cards = Array.from(document.querySelectorAll('.sh-dgr__content, .sh-dlr__list-result, div[data-docid]'));
+            // Mencari container produk Google (Selector ini lebih modern)
+            const cards = Array.from(document.querySelectorAll('g-inner-card, .sh-dgr__content, .sh-dlr__list-result, div[data-docid]'));
 
             for (const card of cards) {
-                const text = card.textContent || (card as HTMLElement).innerText || '';
+                // 1. Ekstrak Judul (Mencari Tag H3 atau aria-label di button)
+                const h3 = card.querySelector('h3');
+                const btn = card.querySelector('div[role="button"]');
+                let title = h3 ? h3.textContent?.trim() : '';
 
-                // Bersihkan whitespace (termasuk non-breaking space & newline yang sering muncul dari DOM bersarang)
-                const cleanText = text.replace(/\s+/g, '');
+                if (!title && btn) {
+                    title = btn.getAttribute('aria-label') || '';
+                }
+                
+                if (!title) {
+                    // Fallback ke div pertama yang punya text panjang
+                    const divs = Array.from(card.querySelectorAll('div'));
+                    const titleDiv = divs.find(d => d.textContent && d.textContent.length > 20);
+                    title = titleDiv ? titleDiv.textContent?.trim() : '';
+                }
 
+                if (!title) continue;
+
+                // 2. Ekstrak Harga
+                const priceText = (card as HTMLElement).innerText || '';
+                const cleanPriceText = priceText.replace(/\s+/g, '');
+                
                 // Cek kemungkinan ada string harga (Rp, Rp., IDR)
-                if (!/(Rp|IDR)/i.test(cleanText)) continue;
+                if (!/(Rp|IDR)/i.test(cleanPriceText)) continue;
 
-                // 1. Ekstrak Harga yang stabil dan tahan banting
-                // Karena spasi sudah dibersihkan, formatnya pasti menempel seperti Rp10.000 atau IDR10.000
-                const priceMatch = cleanText.match(/(?:Rp\.?|IDR)([\d.,]+)/i);
+                const priceMatch = cleanPriceText.match(/(?:Rp\.?|IDR)([\d.,]+)/i);
                 if (!priceMatch) continue;
 
-                // Hapus 1-2 digit desimal di akhir string harga (seperti ,00 atau .50) untuk mencegah bug mark-up 100x lipat
                 let numStr = priceMatch[1].replace(/[,.]\d{1,2}$/, '');
-                
-                // Bersihkan semua titik dan koma pemisah ribuan agar parser bisa mengubahnya menjadi Integer murni
                 const price = parseInt(numStr.replace(/[^0-9]/g, ''), 10);
                 if (isNaN(price) || price === 0) continue;
 
-                // 2. Ekstrak Judul (Mencari Tag H3)
-                const h3 = card.querySelector('h3');
-                const title = h3 ? h3.textContent?.trim() : '';
-                if (!title) continue;
-
-                // 3. Ekstrak & Clean URL (Google biasanya melakukan redirect)
+                // 3. Ekstrak & Clean URL
                 const a = card.querySelector('a');
                 let url = '';
                 if (a && a.href) {
                     url = a.href;
-                    if (url.includes('/url?url=')) {
-                        try {
-                            url = decodeURIComponent(url.split('/url?url=')[1].split('&')[0]);
-                        } catch (e) { }
-                    } else if (url.startsWith('/')) {
-                        url = 'https://www.google.com' + url;
-                    }
+                } else if (btn) {
+                    // Kadang Google pakai atribut data-purl atau link tersembunyi
+                    const hiddenLink = card.querySelector('a[href*="/url?"]');
+                    if (hiddenLink) url = (hiddenLink as HTMLAnchorElement).href;
                 }
+
+                if (url.includes('/url?url=')) {
+                    try {
+                        const parts = url.split('/url?url=');
+                        if (parts.length > 1) {
+                            url = decodeURIComponent(parts[1].split('&')[0]);
+                        }
+                    } catch (e) { }
+                } else if (url.startsWith('/')) {
+                    url = 'https://www.google.com' + url;
+                }
+
                 if (!url || url.includes('javascript:')) continue;
 
-                // 4. Identifikasi Platform Otomatis
+                // 4. Identifikasi Platform
                 let platform = 'E-Commerce';
-                const lowerText = text.toLowerCase();
+                const lowerText = (card as HTMLElement).innerText.toLowerCase();
                 if (lowerText.includes('tokopedia')) platform = 'Tokopedia';
                 else if (lowerText.includes('shopee')) platform = 'Shopee';
                 else if (lowerText.includes('lazada')) platform = 'Lazada';
                 else if (lowerText.includes('blibli')) platform = 'BliBli';
-                else if (lowerText.includes('bukalapak')) platform = 'Bukalapak';
                 else {
                     try {
                         const host = new URL(url).hostname.replace('www.', '').split('.')[0];
