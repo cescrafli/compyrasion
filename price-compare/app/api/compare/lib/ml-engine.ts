@@ -2,6 +2,7 @@ import natural from 'natural';
 import * as fs from 'fs';
 import * as path from 'path';
 import trainingData from './dataset.json';
+import { ScrapedProduct } from './scraper-engine';
 
 export interface MarketplaceOffer {
   platform: string;
@@ -65,12 +66,14 @@ function getClassifier(): Promise<natural.BayesClassifier> {
     freshClassifier.train();
     classifier = freshClassifier;
 
-    // Attempt to persist for future fast loads
-    try {
-      fs.writeFileSync(CLASSIFIER_PATH, JSON.stringify(freshClassifier), 'utf-8');
-      console.log('💾 [ML] Classifier auto-saved to classifier.json for next startup');
-    } catch {
-      // Non-fatal: read-only filesystem (e.g. Docker without volume mount)
+    // Attempt to persist for future fast loads (Local Dev only)
+    if (process.env.NODE_ENV !== 'production') {
+      try {
+        fs.writeFileSync(CLASSIFIER_PATH, JSON.stringify(freshClassifier), 'utf-8');
+        console.log('💾 [ML] Classifier auto-saved to classifier.json for next startup');
+      } catch (err) {
+        console.warn('⚠️ [ML] Failed to auto-save classifier:', err);
+      }
     }
 
     resolve(classifier);
@@ -155,7 +158,7 @@ export async function trainAndPredictIntent(query: string) {
 }
 
 // 2. clusterProductsML
-export function clusterProductsML(products: any[]): ProductCluster[] {
+export function clusterProductsML(products: ScrapedProduct[]): ProductCluster[] {
   if (!products || products.length === 0) return [];
 
   // 🛡️ SCALABILITY CAPPING: Mencegah V8 Event Loop Blocking akibat komputasi O(N^2)
@@ -169,7 +172,7 @@ export function clusterProductsML(products: any[]): ProductCluster[] {
   const tokenizer = new natural.RegexpTokenizer({ pattern: /[a-z0-9]+/i });
 
   // Clean text and Map Prices globally first to save CPU later
-  const cleanedProducts = cappedProducts.map(p => {
+  const cleanedProducts = cappedProducts.map((p: ScrapedProduct) => {
     const cleanTitle = sanitizeProductTitle(p.title);
 
     const parsedPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);

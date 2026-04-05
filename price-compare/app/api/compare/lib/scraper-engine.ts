@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer-extra';
+import { Browser, Page } from 'puppeteer';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 
 puppeteer.use(StealthPlugin());
@@ -18,8 +19,11 @@ export interface AbortState {
 // =========================================
 // 1. GLOBAL BROWSER SINGLETON
 // =========================================
-let globalBrowserInstance: any = null;
-let browserLaunchPromise: Promise<any> | null = null;
+// =========================================
+// 1. GLOBAL BROWSER SINGLETON
+// =========================================
+let globalBrowserInstance: Browser | null = null;
+let browserLaunchPromise: Promise<Browser> | null = null;
 let browserCreatedAt: number = 0;
 const BROWSER_TTL_MS = 60 * 60 * 1000; // 1 Jam batasan maksimal agar vRAM Chrome direfresh
 
@@ -125,16 +129,16 @@ export async function runScrapingPipeline(
     abortState?: AbortState
 ): Promise<ScrapedProduct[]> {
     const browser = await getBrowserInstance();
-    if (abortState?.aborted) return [];
+    if (!browser || abortState?.aborted) return [];
 
-    let page: any = null;
+    let page: Page | null = null;
     let finalResults: ScrapedProduct[] = [];
 
     try {
         page = await browser.newPage();
 
         // Target Google Shopping Indonesia
-        const targetUrl = `https://www.google.com/search?tbm=shop&q=${encodeURI(cleanKeyword)}&hl=id&gl=id`;
+        const targetUrl = `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(cleanKeyword)}&hl=id&gl=id`;
 
         console.log(`🌐 [Aggregator] Mencari di Google Shopping: "${cleanKeyword}"...`);
 
@@ -186,16 +190,25 @@ export async function runScrapingPipeline(
 
                 // 2. Ekstrak Harga
                 const priceText = (card as HTMLElement).innerText || '';
-                const cleanPriceText = priceText.replace(/\s+/g, '');
+                const lowerPriceText = priceText.toLowerCase().replace(/\s+/g, '');
                 
                 // Cek kemungkinan ada string harga (Rp, Rp., IDR)
-                if (!/(Rp|IDR)/i.test(cleanPriceText)) continue;
+                if (!/(rp|idr)/i.test(lowerPriceText)) continue;
 
-                const priceMatch = cleanPriceText.match(/(?:Rp\.?|IDR)([\d.,]+)/i);
+                const priceMatch = lowerPriceText.match(/(?:rp\.?|idr)([\d.,]+)(juta|jt|ribu|rb)?/i);
                 if (!priceMatch) continue;
 
-                let numStr = priceMatch[1].replace(/[,.]\d{1,2}$/, '');
-                const price = parseInt(numStr.replace(/[^0-9]/g, ''), 10);
+                let baseNumber = parseFloat(priceMatch[1].replace(/\./g, '').replace(',', '.'));
+                let multiplier = 1;
+                const unit = priceMatch[2];
+
+                if (unit === 'juta' || unit === 'jt') {
+                    multiplier = 1000000;
+                } else if (unit === 'ribu' || unit === 'rb') {
+                    multiplier = 1000;
+                }
+
+                const price = Math.round(baseNumber * multiplier);
                 if (isNaN(price) || price === 0) continue;
 
                 // 3. Ekstrak & Clean URL

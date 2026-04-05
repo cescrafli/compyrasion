@@ -1,8 +1,13 @@
 import { ProductCluster } from './ml-engine';
+import { ScrapedProduct } from './scraper-engine';
+
+export interface ScrapedProductWithPrice extends ScrapedProduct {
+    parsedPrice: number;
+}
 
 // 🛡️ HELPER: BIMODAL PRE-FILTRATION (K-Means 1D)
 // Tujuan: membuang aksesoris seharga 50rb yang menempel pada pencarian perangkat 10jt
-function filterBimodalNoise(parsedData: any[], prices: number[]) {
+function filterBimodalNoise(parsedData: ScrapedProductWithPrice[], prices: number[]) {
     if (prices.length < 6) return { cleanData: parsedData, excludedCount: 0, validPrices: prices };
 
     let c1 = prices[0];
@@ -33,7 +38,7 @@ function filterBimodalNoise(parsedData: any[], prices: number[]) {
 }
 
 // Helper: Filter IQR per Grup Varian
-function filterGroupAnomalies(parsedGroupedData: any[]) {
+function filterGroupAnomalies(parsedGroupedData: ScrapedProductWithPrice[]) {
     const initialPrices = parsedGroupedData.map(p => p.parsedPrice).sort((a, b) => a - b);
 
     // Bimodal Noise Pre-Filtration
@@ -59,7 +64,7 @@ function filterGroupAnomalies(parsedGroupedData: any[]) {
     const lowerBound = Math.max(0, q1 - 1.5 * iqr);
     const upperBound = q3 + 1.5 * iqr;
 
-    const cleanGroup: any[] = [];
+    const cleanGroup: ScrapedProductWithPrice[] = [];
     let excludedGroupCount = bimodalExcluded;
 
     for (const product of kmeansFilteredData) {
@@ -74,7 +79,7 @@ function filterGroupAnomalies(parsedGroupedData: any[]) {
 }
 
 // 1. filterAnomalies (Expert Math System - Grouped IQR)
-export function filterAnomalies(rawProducts: any[]) {
+export function filterAnomalies(rawProducts: ScrapedProduct[]) {
     if (!rawProducts || rawProducts.length === 0) {
         return {
             cleanProducts: [],
@@ -89,9 +94,9 @@ export function filterAnomalies(rawProducts: any[]) {
     }).filter(p => p.parsedPrice > 0);
 
     // 🛡️ Grouping Produk Berdasarkan Varian Memori (Misal: 128GB, 256GB, 1TB)
-    const groups: Record<string, any[]> = {};
+    const groups: Record<string, ScrapedProductWithPrice[]> = {};
     for (const p of parsedData) {
-        const title = (p.title || p.name || "").toString();
+        const title = (p.title || "").toString();
 
         // Ekstrak SEMUA kapasitas memori dari judul (mengatasi bug varian ganda seperti "8GB 512GB")
         const matches: RegExpMatchArray[] = Array.from(title.matchAll(/\b(\d+\s*(?:gb|tb|mb))\b/gi));
@@ -102,10 +107,10 @@ export function filterAnomalies(rawProducts: any[]) {
             : "DEFAULT";
 
         if (!groups[variantKey]) groups[variantKey] = [];
-        groups[variantKey].push(p);
+        groups[variantKey].push(p as ScrapedProductWithPrice);
     }
 
-    let allCleanProducts: any[] = [];
+    let allCleanProducts: ScrapedProductWithPrice[] = [];
     let totalExcludedCount = 0;
 
     // Terapkan deteksi anomali pada tiap grup varian secara terpisah
@@ -148,7 +153,7 @@ export function filterAnomalies(rawProducts: any[]) {
  * This prevents clusters with many low-quality matches from dominating over
  * smaller but tighter clusters with high semantic similarity.
  */
-export function generateDecisionTreeSummary(analytics: any, clusters: ProductCluster[]) {
+export function generateDecisionTreeSummary(analytics: { average_price: number }, clusters: ProductCluster[]) {
     if (clusters.length === 0) {
         return { summary: "Sistem Pakar: Tidak ada data valid yang memenuhi bobot kluster atau anomali IQR.", buy_recommendation: "Wait" };
     }
