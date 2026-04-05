@@ -145,7 +145,43 @@ export function filterAnomalies(rawProducts: ScrapedProduct[]) {
     };
 }
 
-// 2. generateDecisionTreeSummary (WEIGHTED SCORING)
+/**
+ * 2. filterClusterAnomalies (Per-Cluster IQR Logic)
+ * Digunakan untuk membersihkan anomali harga pada kelompok produk yang sudah di-cluster oleh ML.
+ */
+export function filterClusterAnomalies(rawProducts: ScrapedProduct[]) {
+    // 1. Parsing Harga
+    const parsedData = rawProducts.map(p => {
+        const pPrice = typeof p.price === 'number' ? p.price : parseInt(String(p.price).replace(/[^0-9]/g, ''), 10);
+        return { ...p, parsedPrice: isNaN(pPrice) ? 0 : pPrice };
+    }).filter(p => p.parsedPrice > 0);
+
+    // 2. Grouping Varian (Opsional dalam cluster, tapi berjaga-jaga jika ada 128GB & 256GB tercampur)
+    const groups: Record<string, ScrapedProductWithPrice[]> = {};
+    for (const p of parsedData) {
+        const title = (p.title || "").toString();
+        const matches: RegExpMatchArray[] = Array.from(title.matchAll(/\b(\d+\s*(?:gb|tb|mb))\b/gi));
+        const variantKey = matches.length > 0
+            ? matches.map((m: RegExpMatchArray) => m[1].toUpperCase().replace(/\s+/g, '')).join('_')
+            : "DEFAULT";
+
+        if (!groups[variantKey]) groups[variantKey] = [];
+        groups[variantKey].push(p as ScrapedProductWithPrice);
+    }
+
+    let allCleanProducts: ScrapedProductWithPrice[] = [];
+    let itemsExcluded = 0;
+
+    for (const variantKey in groups) {
+        const { cleanGroup, excludedGroupCount } = filterGroupAnomalies(groups[variantKey]);
+        allCleanProducts.push(...cleanGroup);
+        itemsExcluded += excludedGroupCount;
+    }
+
+    return { cleanProducts: allCleanProducts, itemsExcluded };
+}
+
+// 3. generateDecisionTreeSummary (WEIGHTED SCORING)
 /**
  * Selects the "best" cluster using a weighted score formula:
  *   Score = (Number of Items) × (Average TF-IDF Cosine Similarity within the cluster)

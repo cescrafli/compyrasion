@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import NodeCache from 'node-cache';
 import { runScrapingPipeline, ScrapedProduct, AbortState } from './lib/scraper-engine';
 import { trainAndPredictIntent, clusterProductsML, ProductCluster } from './lib/ml-engine';
-import { filterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
+import { filterClusterAnomalies, generateDecisionTreeSummary } from './lib/expert-ai';
 
 // Memory Caching (1 Jam) dengan V8 Exhaustion Guard (Max 200 Indeks)
 const cache = new NodeCache({ stdTTL: 3600, maxKeys: 200 });
@@ -99,26 +99,72 @@ export async function GET(request: Request) {
       pipelineError = scrapeErr.message;
     }
 
-    // 3. IQR Mathematics Engine (Filter harga anomali / scam)
-    const anomalyFiltered = filterAnomalies(rawProducts);
+    // 3. ML Semantic TF-IDF + Cosine Clustering (CLUSTER FIRST)
+    const initialClusters = clusterProductsML(rawProducts);
 
-    // 4. ML Semantic TF-IDF + Cosine Clustering
-    const clusters = clusterProductsML(anomalyFiltered.cleanProducts);
+    // 4. Per-Cluster Anomaly Filtering (FILTER SECOND)
+    const finalClusters: ProductCluster[] = [];
+    let itemsExcludedCount = 0;
+    const allValidPrices: number[] = [];
 
-    // 5. Intelligent Decision Nodes
-    const smartSummary = generateDecisionTreeSummary(anomalyFiltered.marketAnalytics, clusters);
+    for (const cluster of initialClusters) {
+      // Map MarketplaceOffer back to ScrapedProduct for filtering
+      const clusterProducts = cluster.marketplace_offers.map(off => ({
+        title: off.title,
+        price: off.price,
+        platform: off.platform,
+        url: off.link,
+        image: off.image
+      }));
 
-    // 6. Response Payload Assembly
+      const { cleanProducts, itemsExcluded } = filterClusterAnomalies(clusterProducts);
+      itemsExcludedCount += itemsExcluded;
+
+      if (cleanProducts.length > 0) {
+        // Update cluster with cleaned data
+        cluster.marketplace_offers = cleanProducts.map(p => ({
+          platform: p.platform,
+          price: p.parsedPrice,
+          link: p.url,
+          condition: "Baru",
+          title: p.title,
+          image: p.image
+        }));
+
+        // Recalculate cluster best price and platform
+        cluster.best_price = cluster.marketplace_offers.reduce((min, off) => off.price < min ? off.price : min, cluster.marketplace_offers[0].price);
+        cluster.cheapest_platform = cluster.marketplace_offers.find(off => off.price === cluster.best_price)?.platform || cluster.cheapest_platform;
+
+        finalClusters.push(cluster);
+        allValidPrices.push(...cleanProducts.map(p => p.parsedPrice));
+      }
+    }
+
+    // 5. Calculate Global Market Stats from remaining clean products
+    const avgPrice = allValidPrices.length > 0 ? allValidPrices.reduce((a, b) => a + b, 0) / allValidPrices.length : 0;
+    const marketAnalytics = {
+      average_price: Math.round(avgPrice),
+      market_range: {
+        lowest: allValidPrices.length > 0 ? Math.min(...allValidPrices) : 0,
+        highest: allValidPrices.length > 0 ? Math.max(...allValidPrices) : 0
+      },
+      items_excluded_count: itemsExcludedCount
+    };
+
+    // 6. Intelligent Decision Nodes
+    const smartSummary = generateDecisionTreeSummary(marketAnalytics, finalClusters);
+
+    // 7. Response Payload Assembly
     const responsePayload: ComparisonResponse = {
       query_intent: intent,
-      market_stats: anomalyFiltered.marketAnalytics,
+      market_stats: marketAnalytics,
       smart_summary: smartSummary,
-      product_clusters: clusters,
+      product_clusters: finalClusters,
       ...(pipelineError && { errors: pipelineError })
     };
 
     // 🛡️ CACHE POLICY: Simpan jika ada data dan tidak ada error fatal
-    if (!pipelineError && clusters.length > 0) {
+    if (!pipelineError && finalClusters.length > 0) {
       cache.set(cacheKey, responsePayload);
     }
 

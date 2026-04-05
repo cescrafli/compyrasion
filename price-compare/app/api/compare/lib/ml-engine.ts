@@ -9,6 +9,8 @@ export interface MarketplaceOffer {
   price: number;
   link: string;
   condition: string;
+  title: string;
+  image: string;
 }
 
 export interface ProductCluster {
@@ -21,6 +23,16 @@ export interface ProductCluster {
   rating: number;
   /** Average cosine similarity of items within this cluster (used for weighted scoring) */
   avg_similarity: number;
+}
+
+// ==========================================
+// HEURISTICS: Accessory Identification
+// ==========================================
+const ACCESSORY_KEYWORDS = ['case', 'cover', 'box', 'charger', 'kabel', 'strap', 'cable', 'screen protector', 'tempered glass', 'adapter'];
+
+function hasAccessoryKeyword(title: string): boolean {
+  const lowerTitle = title.toLowerCase();
+  return ACCESSORY_KEYWORDS.some(k => lowerTitle.includes(k));
 }
 
 // ==========================================
@@ -219,7 +231,9 @@ export function clusterProductsML(products: ScrapedProduct[]): ProductCluster[] 
         platform: baseProduct.platform,
         price: baseProduct.parsedPrice,
         link: baseProduct.url,
-        condition: "Baru"
+        condition: "Baru",
+        title: baseProduct.title,
+        image: baseProduct.image
       }]
     };
 
@@ -232,7 +246,18 @@ export function clusterProductsML(products: ScrapedProduct[]): ProductCluster[] 
       const termsJ = documentVectors[j];
       const similarity = calculateCosineSimilarity(termsI, termsJ);
 
-      if (similarity >= COSINE_THRESHOLD) {
+      // 🛡️ HEURISTIC PENALTY: Jika salah satu judul produk memiliki kata kunci aksesoris (seperti 'case', 'cover', etc)
+      // sementara judul lainnya tidak, berikan penalti pemotongan skor (kalikan skor dengan 0.3)
+      const baseHasAcc = hasAccessoryKeyword(baseProduct.title);
+      const jHasAcc = hasAccessoryKeyword(cleanedProducts[j].title);
+      
+      let finalSimilarity = similarity;
+      if (baseHasAcc !== jHasAcc) {
+        finalSimilarity *= 0.3;
+        // console.log(`🔍 [ML] Accessory Penalty Applied: "${baseProduct.title}" vs "${cleanedProducts[j].title}" (Score: ${similarity} -> ${finalSimilarity.toFixed(2)})`);
+      }
+
+      if (finalSimilarity >= COSINE_THRESHOLD) {
         const jProduct = cleanedProducts[j];
         similarityScores.push(similarity);
 
@@ -241,7 +266,9 @@ export function clusterProductsML(products: ScrapedProduct[]): ProductCluster[] 
           platform: jProduct.platform,
           price: jProduct.parsedPrice,
           link: jProduct.url,
-          condition: "Baru"
+          condition: "Baru",
+          title: jProduct.title,
+          image: jProduct.image
         });
 
         if (jProduct.parsedPrice < currentCluster.best_price) {
